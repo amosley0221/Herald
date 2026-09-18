@@ -11,6 +11,16 @@ is rejected by CI.
 
 ## [Unreleased]
 
+### Changed
+- The Android release build targets `arm64-v8a` only, and Gradle's caches now
+  persist between runs. The default builds all four ABIs, so three quarters of
+  the native compilation was for architectures no real device uses.
+
+### Fixed
+- The desktop release job ran a bare `npm ci`, which installs every workspace —
+  including the engine, whose `better-sqlite3` has to be compiled from source on
+  Windows and fails there. Each job now installs only the workspaces it needs.
+
 ### Fixed
 - The release workflow used `android-actions/setup-android`, which installs the
   `tools` SDK package that Google has removed — sdkmanager exits 1 on it and
