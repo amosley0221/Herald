@@ -69,6 +69,8 @@ export interface NativeUpdate {
   androidVersionCode: number;
   notesMarkdown: string;
   date: string;
+  /** Where CI published this version's APK, when the feed records it. */
+  apkUrl: string | null;
 }
 
 /**
@@ -87,6 +89,7 @@ export function findNativeUpdate(feed: ReleaseIndex | null): NativeUpdate | null
     androidVersionCode: release.androidVersionCode,
     notesMarkdown: release.notesMarkdown,
     date: release.date,
+    apkUrl: release.androidApkUrl ?? null,
   };
 }
 

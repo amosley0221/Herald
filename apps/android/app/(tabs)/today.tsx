@@ -125,7 +125,7 @@ function UpdateBanner({ update }: { update: NativeUpdate }) {
   const [busy, setBusy] = useState(false);
   const [percent, setPercent] = useState<number | null>(null);
 
-  const apkUrl = findApkUrl(update.version);
+  const apkUrl = update.apkUrl ?? findApkUrl(update.version);
 
   const install = async () => {
     if (!apkUrl) {
@@ -166,10 +166,8 @@ function UpdateBanner({ update }: { update: NativeUpdate }) {
 }
 
 /**
- * Where the APK for a version lives.
- *
- * Derived from the release feed's own URL so it follows whatever the CI
- * publishes, rather than assuming a hosting layout.
+ * Fallback for a feed published before CI started recording the APK URL:
+ * assume the file sits alongside the feed itself.
  */
 function findApkUrl(version: string): string | null {
   const indexUrl = appConfig.releasesIndexUrl;

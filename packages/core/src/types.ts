@@ -158,6 +158,12 @@ export interface ReleaseEntry {
   notesMarkdown: string;
   androidVersionCode: number;
   minSupported: string;
+  /**
+   * Where this version's APK can be downloaded, filled in by CI once the build
+   * exists. Null until then — the in-app updater shows the notes instead of
+   * offering an install it cannot complete.
+   */
+  androidApkUrl?: string | null;
   /** Code-push patches shipped on top of this version, newest first. */
   patches?: ReleasePatch[];
 }

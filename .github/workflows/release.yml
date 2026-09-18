@@ -120,8 +120,8 @@ jobs:
           HERALD_RELEASES_PAGE_URL: ${{ vars.HERALD_RELEASES_PAGE_URL }}
         run: eas build --platform android --profile production --non-interactive --wait --output ../../herald-${{ needs.notes.outputs.version }}.apk
 
-      # The in-app updater downloads this from alongside the release feed, so
-      # the file name has to match what `findApkUrl` builds.
+      # The in-app updater reads this asset's URL out of the release feed,
+      # which build-updater-manifest.mjs fills in once the upload lands.
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
@@ -198,7 +198,7 @@ jobs:
   # ── Fold the signed platform URLs into the updater manifest ──────────────
   updater-manifest:
     name: Updater manifest
-    needs: [notes, desktop]
+    needs: [notes, desktop, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -217,7 +217,7 @@ jobs:
         run: |
           git config user.name  'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add releases/latest.json
+          git add releases/
           git commit -m "Updater manifest for ${{ needs.notes.outputs.version }}" || echo "Nothing to commit"
           git push origin main
 

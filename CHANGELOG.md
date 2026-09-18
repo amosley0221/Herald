@@ -53,3 +53,5 @@ is rejected by CI.
   publishes `releases/index.json`, the updater manifest and a public
   release-notes page, and refuses a pull request that changes user-facing code
   without release notes.
+- README covering setup, the daily pipeline, the guardrails, both update
+  mechanisms and every configuration surface.

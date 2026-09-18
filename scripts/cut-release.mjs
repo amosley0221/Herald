@@ -70,6 +70,8 @@ const entry = {
   // Builds older than this are refused an update path and told to reinstall.
   // Same major, minor zero: a major bump is where a clean break belongs.
   minSupported: `${parseVersion(version).major}.0.0`,
+  // Filled in by build-updater-manifest.mjs once the APK has been uploaded.
+  androidApkUrl: null,
   patches: [],
 };
 

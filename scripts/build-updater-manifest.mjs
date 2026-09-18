@@ -89,6 +89,22 @@ for (const asset of assets) {
   }
 }
 
+// The Android APK ships as a release asset too. Recording its real URL in the
+// feed means the in-app updater downloads what CI actually published rather
+// than guessing a path from the feed's own location.
+const apk = assets.find((asset) => asset.name.endsWith('.apk'));
+for (const name of [`${version}.json`, 'index.json']) {
+  const path = resolve(root, 'releases', name);
+  if (!existsSync(path)) continue;
+  const feed = JSON.parse(readFileSync(path, 'utf8'));
+  const entries = Array.isArray(feed.releases) ? feed.releases : [feed];
+  for (const entry of entries) {
+    if (entry.version === version) entry.androidApkUrl = apk?.browser_download_url ?? null;
+  }
+  writeFileSync(path, `${JSON.stringify(feed, null, 2)}\n`);
+  console.log(`  ${name} -> androidApkUrl ${apk ? 'set' : 'cleared'}`);
+}
+
 const notesPath = resolve(root, 'releases/notes.md');
 const manifest = {
   version,
