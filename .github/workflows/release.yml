@@ -1,0 +1,252 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 1.4.2'
+        required: true
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # ── Cut the notes and publish the feeds every updater reads ───────────────
+  notes:
+    name: Release notes
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.cut.outputs.version }}
+      android_version_code: ${{ steps.cut.outputs.android_version_code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build --workspace @herald/core
+
+      - name: Cut the release
+        id: cut
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -z "$VERSION" ]; then VERSION="${GITHUB_REF_NAME#v}"; fi
+          node scripts/sync-version.mjs "$VERSION"
+          node scripts/cut-release.mjs "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "android_version_code=$(node -e "
+            import('./packages/core/dist/index.js').then(m =>
+              console.log(m.androidVersionCode('$VERSION')))
+          ")" >> "$GITHUB_OUTPUT"
+
+      - name: Commit the cut
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add CHANGELOG.md releases package.json packages/*/package.json \
+                  services/*/package.json apps/*/package.json \
+                  apps/android/version.generated.json \
+                  apps/desktop/src-tauri/tauri.conf.json
+          git commit -m "Release ${{ steps.cut.outputs.version }}" || echo "Nothing to commit"
+          git push origin main
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: releases
+          path: releases/
+
+      - name: Create the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.cut.outputs.version }}
+          name: Herald ${{ steps.cut.outputs.version }}
+          body_path: releases/notes.md
+          draft: false
+
+  # ── Android: an OTA patch for JS changes, a signed APK for native ones ────
+  android:
+    name: Android
+    needs: notes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - run: npm ci
+      - run: npm run build --workspace @herald/core
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # Most releases only change JavaScript, and those reach the phone with no
+      # install step at all. The APK below is for the ones that do not.
+      - name: Publish the over-the-air update
+        working-directory: apps/android
+        env:
+          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+        run: eas update --branch production --message "v${{ needs.notes.outputs.version }}" --non-interactive
+
+      - name: Build the APK
+        working-directory: apps/android
+        env:
+          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+          HERALD_RELEASES_INDEX_URL: ${{ vars.HERALD_RELEASES_INDEX_URL }}
+          HERALD_RELEASES_PAGE_URL: ${{ vars.HERALD_RELEASES_PAGE_URL }}
+        run: eas build --platform android --profile production --non-interactive --wait --output ../../herald-${{ needs.notes.outputs.version }}.apk
+
+      # The in-app updater downloads this from alongside the release feed, so
+      # the file name has to match what `findApkUrl` builds.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: herald-${{ needs.notes.outputs.version }}.apk
+
+      - name: Attach the APK to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.notes.outputs.version }}
+          files: herald-${{ needs.notes.outputs.version }}.apk
+
+  # ── Desktop: signed installers plus the updater manifest ─────────────────
+  desktop:
+    name: Desktop (${{ matrix.label }})
+    needs: notes
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04,  label: linux,   args: '' }
+          - { os: windows-latest, label: windows, args: '' }
+          - { os: macos-latest,   label: macos,   args: '--target universal-apple-darwin' }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.label == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Install Tauri system dependencies
+        if: matrix.label == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev
+
+      - run: npm ci
+      - run: npm run build --workspace @herald/core
+
+      - name: Build and publish
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signs the update so a compromised host cannot push a build of its own.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS: Gatekeeper blocks an unnotarized update, so this is required
+          # for the macOS updater to work at all.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: apps/desktop
+          tagName: v${{ needs.notes.outputs.version }}
+          releaseName: Herald ${{ needs.notes.outputs.version }}
+          releaseBody: See the release notes.
+          releaseDraft: false
+          args: ${{ matrix.args }}
+
+  # ── Fold the signed platform URLs into the updater manifest ──────────────
+  updater-manifest:
+    name: Updater manifest
+    needs: [notes, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
+      - name: Assemble latest.json from the release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.notes.outputs.version }}
+        run: node scripts/build-updater-manifest.mjs "$VERSION"
+
+      - name: Commit the manifest
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add releases/latest.json
+          git commit -m "Updater manifest for ${{ needs.notes.outputs.version }}" || echo "Nothing to commit"
+          git push origin main
+
+  # ── Publish the release-notes page ───────────────────────────────────────
+  pages:
+    name: Release notes page
+    needs: [notes, updater-manifest]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
+      - run: npm ci
+      - run: npm run build --workspace @herald/core
+
+      - name: Render the page
+        run: node scripts/build-releases-page.mjs
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: releases
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

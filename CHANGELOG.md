@@ -44,3 +44,12 @@ is rejected by CI.
   installs a new APK when a native change ships.
 - Pairing by QR code from the desktop app, with the engine token held in the
   Android keystore.
+- Desktop app (Tauri): the three-pane inbox from the handoff — sidebar, list and
+  detail — with Today, Matches, Tracker, Preferences and What's new, plus the
+  Review layout in the detail pane and a QR pairing code for the phone.
+- Desktop updates without reinstalling: Tauri's signature-checked updater reads
+  a manifest published by CI and swaps the build in on relaunch.
+- Release pipeline: CI cuts `## [Unreleased]` into a dated section on a tag,
+  publishes `releases/index.json`, the updater manifest and a public
+  release-notes page, and refuses a pull request that changes user-facing code
+  without release notes.

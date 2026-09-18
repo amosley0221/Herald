@@ -1,0 +1,38 @@
+[package]
+name = "herald"
+version = "0.1.0"
+description = "Herald — automated job application engine"
+authors = ["Herald"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "herald_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-process = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# The updater is desktop-only; on mobile Tauri has no installer to swap.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
+
+[features]
+# Used by `tauri build --debug` to keep devtools available in a release build.
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+# A single-user desktop app benefits more from a small binary than from the
+# last few percent of speed.
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

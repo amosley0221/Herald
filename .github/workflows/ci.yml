@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The apps import @herald/core's built output, so it has to exist before
+      # anything downstream can typecheck.
+      - name: Build core
+        run: npm run build --workspace @herald/core
+
+      - name: Typecheck
+        run: npm run typecheck --workspaces --if-present
+
+      - name: Test
+        run: npm run test --workspaces --if-present
+
+      - name: Build desktop frontend
+        run: npm run build --workspace @herald/desktop
+
+      # Guards against tokens.ts and the desktop CSS drifting apart.
+      - name: Generated files are up to date
+        run: |
+          node scripts/generate-css-tokens.mjs
+          node scripts/build-icons.mjs
+          if ! git diff --quiet; then
+            echo "Generated files are stale. Run the scripts and commit the result:"
+            git --no-pager diff --stat
+            exit 1
+          fi
+
+  rust:
+    name: Desktop shell
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev
+
+      - name: Check
+        working-directory: apps/desktop/src-tauri
+        run: cargo check --locked
+
+  changelog:
+    name: Release notes
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The guard diffs against the base branch, which needs full history.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Every user-facing change ships with release notes
+        run: node scripts/check-changelog.mjs origin/${{ github.base_ref }}
