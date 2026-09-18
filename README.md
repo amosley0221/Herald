@@ -102,13 +102,23 @@ printed. After that, Preferences shows a QR code for pairing your phone.
 
 ### 3. The Android app
 
+The APK is built by CI and published to the repository's Releases page — see
+[Cutting a release](#cutting-a-release). Download it on your phone, allow
+"install unknown apps" for your browser when prompted, and install.
+
+That is the only manual install you will ever do; every version after it
+arrives on its own.
+
+To build one locally instead, you need the Android SDK and a JDK:
+
 ```bash
 cd apps/android
-npx eas build --platform android --profile production
+npx expo prebuild --platform android
+cd android && ./gradlew assembleRelease
 ```
 
-EAS builds in the cloud, so you do not need Android Studio or an SDK locally.
-Install the resulting APK once; every update after that arrives on its own.
+Without signing properties that produces a debug-signed APK, which installs
+fine but cannot be updated over by a CI build. Use it for testing only.
 
 Open the app, scan the QR code from the desktop app, upload your resume, set
 your threshold. That is the whole of onboarding.
@@ -193,8 +203,23 @@ Before the first tag, four things have to be true:
 
 1. **A default branch exists and has this code on it.** The release workflow
    checks out and pushes to the repository's default branch.
-2. **The Android secrets are set** — `EXPO_TOKEN` and `EAS_PROJECT_ID`. Without
-   them the APK job fails and no APK is attached to the release.
+2. **The Android signing secrets are set** — `ANDROID_KEYSTORE_BASE64`,
+   `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`.
+   Without them the APK job fails and no APK is attached.
+
+   Generate the keystore once and keep it somewhere permanent:
+
+   ```bash
+   keytool -genkeypair -v -keystore herald.keystore -alias herald \
+     -keyalg RSA -keysize 4096 -validity 10950
+   base64 -w0 herald.keystore    # paste into ANDROID_KEYSTORE_BASE64
+   ```
+
+   **Losing this key is unrecoverable.** Android refuses to install a build
+   signed with a different key over an existing one, so a lost keystore means
+   uninstalling and reinstalling by hand — the exact thing Herald exists to
+   avoid. No Expo account is needed: the APK is built with Gradle on the
+   runner. `EXPO_TOKEN` is optional and only enables over-the-air updates.
 3. **The desktop signing key is set** — `TAURI_SIGNING_PRIVATE_KEY` and its
    password, with the public half in `tauri.conf.json`. Without it the desktop
    installers build but no update manifest is produced, so desktop updates are
@@ -233,11 +258,12 @@ Work down this list — it is ordered by how often each one is the cause:
 
 ### Secrets CI needs
 
-| Secret | For |
-|---|---|
-| `EXPO_TOKEN`, `EAS_PROJECT_ID` | Android builds and OTA updates |
-| `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Signing desktop updates |
-| `APPLE_*` | macOS notarization — without it Gatekeeper blocks the updater |
+| Secret | For | Required |
+|---|---|---|
+| `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | Signing the APK | Yes, for Android |
+| `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Signing desktop updates | Yes, for desktop self-updates |
+| `EXPO_TOKEN`, `EAS_PROJECT_ID` | Over-the-air JavaScript updates | No — the APK path works without them |
+| `APPLE_*` | macOS notarization — without it Gatekeeper blocks the updater | Only for macOS |
 
 Generate the Tauri signing key with
 `npm run tauri -w @herald/desktop -- signer generate`, then put the public half

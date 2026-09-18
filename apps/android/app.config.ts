@@ -60,6 +60,16 @@ const config: ExpoConfig = {
       // once to confirm, and that is the only manual step in an update.
       'REQUEST_INSTALL_PACKAGES',
     ],
+    /**
+     * Permissions that libraries pull in but Herald has no business asking for.
+     * expo-camera declares RECORD_AUDIO because it can film video; Herald only
+     * ever reads a QR code, and a job-application app asking to record audio is
+     * not something a user should have to talk themselves into.
+     */
+    blockedPermissions: [
+      'android.permission.RECORD_AUDIO',
+      'android.permission.SYSTEM_ALERT_WINDOW',
+    ],
     // Deep links from notification actions: herald://match/<id>.
     intentFilters: [
       {
@@ -120,6 +130,10 @@ const config: ExpoConfig = {
         cameraPermission: 'Herald uses the camera once, to scan the pairing code shown by the desktop app.',
       },
     ],
+    // Signs release builds with a real keystore rather than the throwaway debug
+    // one, so a later build installs over an earlier one instead of being
+    // rejected for a signature mismatch.
+    './plugins/with-release-signing.js',
   ],
 
   updates: {
