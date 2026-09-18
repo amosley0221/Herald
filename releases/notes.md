@@ -1,18 +1,3 @@
-# Changelog
-
-All notable changes to Herald are recorded here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project uses
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-Every release's section is published verbatim as the GitHub Release body, as
-`releases/<version>.json`, and on the in-app **What's new** screen. A pull
-request that changes `apps/**` or `packages/core/**` without adding a line here
-is rejected by CI.
-
-## [Unreleased]
-
-## [0.1.0] — 2026-09-18
-
 ### Added
 - Shared `@herald/core` package: domain contracts, the match status machine,
   Crowned Pixel design tokens, formatting helpers, all UI copy, and the typed
