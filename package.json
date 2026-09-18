@@ -2,14 +2,17 @@
   "name": "herald",
   "version": "0.1.0",
   "private": true,
-  "description": "Herald — automated job application engine. Android + desktop clients over a scheduled matching engine.",
+  "description": "Herald \u2014 automated job application engine. Android + desktop clients over a scheduled matching engine.",
   "license": "UNLICENSED",
   "workspaces": [
     "packages/*",
     "services/*",
+    "apps/android",
     "apps/desktop"
   ],
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "npm run build -w @herald/core && npm run build -w @herald/engine",
     "typecheck": "npm run typecheck --workspaces --if-present",

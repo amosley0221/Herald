@@ -34,3 +34,13 @@ is rejected by CI.
   deterministically so they are never hallucinated.
 - Optional Gmail reply tracking that moves applications to interview/rejected.
 - Docker image and compose file for deploying the engine.
+- Android app (Expo): all eight screens from the handoff — onboarding, Today,
+  Matches, match detail, Review before submitting, Tracker, Preferences and
+  What's new — built on the Crowned Pixel tokens with Cinzel and Jost bundled.
+- Android notifications with Approve / View / Skip actions, deep-linking
+  straight into the Review screen, plus the morning digest and needs-you pushes.
+- Android updates without reinstalling: `expo-updates` applies JavaScript
+  changes silently on next launch, and a release-feed banner downloads and
+  installs a new APK when a native change ships.
+- Pairing by QR code from the desktop app, with the engine token held in the
+  Android keystore.
