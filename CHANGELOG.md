@@ -56,7 +56,21 @@ is rejected by CI.
 - README covering setup, the daily pipeline, the guardrails, both update
   mechanisms and every configuration surface.
 
+### Changed
+- The Android APK is now built with Gradle on the CI runner instead of EAS, so
+  releasing one needs no Expo account. Over-the-air updates remain an optional
+  layer that is skipped when `EXPO_TOKEN` is not set.
+- Release builds are signed from a keystore held in repository secrets, so each
+  build installs over the last instead of being rejected for a signature
+  mismatch.
+- `RECORD_AUDIO` and `SYSTEM_ALERT_WINDOW`, pulled in by libraries, are stripped
+  from the manifest. Herald only reads a QR code and has no business asking to
+  record audio.
+
 ### Fixed
 - The release workflow assumed a branch named `main`, which would have failed
   the first release on a repository whose default branch is named anything else
   or does not exist yet. It now uses the repository's own default branch.
+- `expo-build-properties` was declared as a plugin but never installed, which
+  would have failed `expo prebuild` on the first release build.
+- `expo-system-ui` was missing, so the dark `userInterfaceStyle` was ignored.
