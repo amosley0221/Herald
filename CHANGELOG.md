@@ -55,3 +55,8 @@ is rejected by CI.
   without release notes.
 - README covering setup, the daily pipeline, the guardrails, both update
   mechanisms and every configuration surface.
+
+### Fixed
+- The release workflow assumed a branch named `main`, which would have failed
+  the first release on a repository whose default branch is named anything else
+  or does not exist yet. It now uses the repository's own default branch.

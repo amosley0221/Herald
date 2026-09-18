@@ -183,7 +183,26 @@ host cannot push a build of its own.
 
 ### Cutting a release
 
-Tag it, and CI does the rest:
+**Nothing is published until you tag.** There is no APK, no installer and no
+release feed until the release workflow has run at least once — the in-app
+updaters have nothing to find before then, and the first install of each app is
+always manual. That is the only manual install there ever is, but it does have
+to happen.
+
+Before the first tag, four things have to be true:
+
+1. **A default branch exists and has this code on it.** The release workflow
+   checks out and pushes to the repository's default branch.
+2. **The Android secrets are set** — `EXPO_TOKEN` and `EAS_PROJECT_ID`. Without
+   them the APK job fails and no APK is attached to the release.
+3. **The desktop signing key is set** — `TAURI_SIGNING_PRIVATE_KEY` and its
+   password, with the public half in `tauri.conf.json`. Without it the desktop
+   installers build but no update manifest is produced, so desktop updates are
+   never offered.
+4. **GitHub Pages is enabled** for the repository, with the source set to
+   GitHub Actions.
+
+Then:
 
 ```bash
 git tag v1.4.2 && git push origin v1.4.2
@@ -192,10 +211,25 @@ git tag v1.4.2 && git push origin v1.4.2
 That cuts `## [Unreleased]` from the CHANGELOG into a dated section and
 publishes it four ways: as the GitHub Release body, as `releases/index.json`
 for both in-app **What's new** screens, as the two updater manifests, and as a
-public release-notes page on GitHub Pages.
+public release-notes page on GitHub Pages. The APK is attached to the GitHub
+Release, and its URL is written into `releases/index.json` as `androidApkUrl`,
+which is what the in-app updater reads.
 
 A pull request that changes `apps/**` or `packages/core/**` without adding a
 CHANGELOG entry fails CI. Release notes are not a habit here; they are a gate.
+
+### Why the app might not see an update
+
+Work down this list — it is ordered by how often each one is the cause:
+
+| Check | Where |
+|---|---|
+| A release exists at all | The repository's Releases page |
+| The APK is attached to it | Same page, under Assets |
+| `androidApkUrl` is set in the feed | `releases/index.json` |
+| The app knows where the feed is | `HERALD_RELEASES_INDEX_URL` at build time, or `releases.indexUrl` in the engine config |
+| The published version is newer | An equal or older version is correctly ignored |
+| "Install unknown apps" is allowed | Android settings, for Herald |
 
 ### Secrets CI needs
 
