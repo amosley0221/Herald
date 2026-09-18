@@ -124,6 +124,12 @@ jobs:
           yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
           ls "$ANDROID_HOME/platforms"
 
+      # Gradle's caches survive between runs, so only the first release pays the
+      # full dependency download and native compile.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
       - run: npm ci --workspace @herald/core --workspace @herald/android --include-workspace-root
       - run: npm run build --workspace @herald/core
 
@@ -160,7 +166,13 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          # Only arm64-v8a. Reanimated and the other native modules compile
+          # their C++ once per ABI, and building all four means three quarters
+          # of the work is for architectures no real device uses: the x86 pair
+          # exists for emulators, and armeabi-v7a for phones predating the
+          # 64-bit requirement. Add ABIs back here if an old device needs one.
           ./gradlew assembleRelease --no-daemon \
+            -PreactNativeArchitectures=arm64-v8a \
             -PHERALD_STORE_FILE=herald.keystore \
             -PHERALD_STORE_PASSWORD="$STORE_PASSWORD" \
             -PHERALD_KEY_ALIAS="$KEY_ALIAS" \
