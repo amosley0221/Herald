@@ -74,3 +74,8 @@ is rejected by CI.
 - `expo-build-properties` was declared as a plugin but never installed, which
   would have failed `expo prebuild` on the first release build.
 - `expo-system-ui` was missing, so the dark `userInterfaceStyle` was ignored.
+- The release workflow keyed off the repository's default branch, which is still
+  a working branch here — a release would have landed there instead of on the
+  trunk. It now targets `main`, overridable with a `RELEASE_BRANCH` variable.
+- `services/engine/dist-test/` (compiled test output) was committed, because
+  `.gitignore` listed only `dist/`.

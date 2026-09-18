@@ -18,6 +18,14 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+env:
+  # The branch a release is cut from and pushed back to. `github.event.
+  # repository.default_branch` is not reliable here: a repository whose default
+  # is still a working branch would have the release land there instead of on
+  # the trunk. Override with a RELEASE_BRANCH repository variable if the trunk
+  # is not called main.
+  RELEASE_BRANCH: ${{ vars.RELEASE_BRANCH || 'main' }}
+
 jobs:
   # ── Cut the notes and publish the feeds every updater reads ───────────────
   notes:
@@ -32,7 +40,7 @@ jobs:
           # The repository's own default branch, not an assumed "main" — the
           # first release used to fail here on a repo that names it anything
           # else, or has not created it yet.
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ vars.RELEASE_BRANCH || 'main' }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-node@v4
@@ -65,7 +73,7 @@ jobs:
                   apps/android/version.generated.json \
                   apps/desktop/src-tauri/tauri.conf.json
           git commit -m "Release ${{ steps.cut.outputs.version }}" || echo "Nothing to commit"
-          git push origin HEAD:${{ github.event.repository.default_branch }}
+          git push origin HEAD:${{ vars.RELEASE_BRANCH || 'main' }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -92,7 +100,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ vars.RELEASE_BRANCH || 'main' }}
 
       - uses: actions/setup-node@v4
         with:
@@ -205,7 +213,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ vars.RELEASE_BRANCH || 'main' }}
 
       - uses: actions/setup-node@v4
         with:
@@ -261,7 +269,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ vars.RELEASE_BRANCH || 'main' }}
 
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
@@ -278,7 +286,7 @@ jobs:
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           git add releases/
           git commit -m "Updater manifest for ${{ needs.notes.outputs.version }}" || echo "Nothing to commit"
-          git push origin HEAD:${{ github.event.repository.default_branch }}
+          git push origin HEAD:${{ vars.RELEASE_BRANCH || 'main' }}
 
   # ── Publish the release-notes page ───────────────────────────────────────
   pages:
@@ -291,7 +299,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ vars.RELEASE_BRANCH || 'main' }}
 
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
