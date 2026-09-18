@@ -218,6 +218,15 @@ jobs:
           - { os: windows-latest, label: windows, args: '' }
           - { os: macos-latest,   label: macos,   args: '--target universal-apple-darwin' }
     runs-on: ${{ matrix.os }}
+    env:
+      # Updater artifacts must be signed, and Tauri fails the build outright if
+      # asked to produce them without a key — after the installers are already
+      # built. Produce them only when a key exists; without one the app still
+      # builds and installs, it just does not self-update.
+      UPDATER_CONFIG: >-
+        ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != ''
+            && '--config {"bundle":{"createUpdaterArtifacts":true}}'
+            || '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -270,7 +279,7 @@ jobs:
           releaseName: Herald ${{ needs.notes.outputs.version }}
           releaseBody: See the release notes.
           releaseDraft: false
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} ${{ env.UPDATER_CONFIG }}
 
   # ── Fold the signed platform URLs into the updater manifest ──────────────
   updater-manifest:
