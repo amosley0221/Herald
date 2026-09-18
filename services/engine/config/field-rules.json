@@ -1,0 +1,13 @@
+{
+  "_comment": [
+    "Rules mapping form controls on application sites to values Herald can supply.",
+    "These are merged over the engine's built-in rules by `key`, so you only need",
+    "to list what you want to change or add.",
+    "",
+    "  match    — regexes (case-insensitive) tested against the control's label, name and id",
+    "  source   — where the value comes from; `literal` uses the `value` field",
+    "  skip     — true means never fill this, whatever it is labelled",
+    "  priority — higher wins when two rules match the same control"
+  ],
+  "rules": []
+}

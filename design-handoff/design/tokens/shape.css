@@ -1,0 +1,25 @@
+/* Crowned Pixel — Shape, spacing, effects */
+:root {
+  /* Luxury = sharp. Zero rounding everywhere. */
+  --cp-radius: 0px;
+
+  /* Spacing scale (from brand kit) */
+  --cp-space-1: 8px;
+  --cp-space-2: 16px;
+  --cp-space-3: 24px;
+  --cp-space-4: 44px;
+  --cp-space-5: 88px;
+  --cp-space-6: 120px;
+
+  /* Shadows — quiet, no glow. Depth via surface color, not shadow. */
+  --cp-shadow-panel: 0 1px 0 rgba(198,167,94,0.12), 0 12px 32px rgba(0,0,0,0.45);
+
+  /* Motion — understated */
+  --cp-ease: cubic-bezier(0.25, 0.1, 0.25, 1); /* @kind other */
+  --cp-duration: 200ms; /* @kind other */
+}
+
+/* Gold gradient — emblem / rare accents ONLY. Never buttons or panels. */
+.cp-gold-gradient {
+  background: linear-gradient(135deg, var(--cp-gold-bright), var(--cp-gold) 60%, var(--cp-gold-dark));
+}

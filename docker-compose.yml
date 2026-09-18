@@ -1,0 +1,30 @@
+# Runs the engine with its data on a named volume, so an update never loses the
+# score cache, the tracker history or the stored resume.
+#
+#   cp services/engine/.env.example .env   # then fill it in
+#   docker compose up -d --build
+services:
+  engine:
+    build:
+      context: .
+      dockerfile: services/engine/Dockerfile
+    image: herald-engine:latest
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in .env}
+      HERALD_TOKEN: ${HERALD_TOKEN:?run `npm run init -w @herald/engine` to generate one}
+      HERALD_CONFIG: /config/herald.config.json
+      HERALD_DATA_DIR: /data
+      HERALD_PUBLIC_URL: ${HERALD_PUBLIC_URL:-}
+      HERALD_RELEASES_INDEX_URL: ${HERALD_RELEASES_INDEX_URL:-}
+      HERALD_LOG_LEVEL: ${HERALD_LOG_LEVEL:-info}
+    volumes:
+      - herald-data:/data
+      # Your config plus any service-account files it references. Read-only:
+      # the engine never writes here at runtime.
+      - ./deploy/config:/config:ro
+
+volumes:
+  herald-data:

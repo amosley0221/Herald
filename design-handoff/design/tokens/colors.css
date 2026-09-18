@@ -1,0 +1,27 @@
+/* Crowned Pixel — Color tokens */
+:root {
+  /* Base palette */
+  --cp-onyx:        #0C0A09; /* primary background */
+  --cp-graphite:    #161318; /* raised surfaces */
+  --cp-graphite-2:  #1E1A21; /* cards, panels */
+  --cp-gold:        #C6A75E; /* primary accent */
+  --cp-gold-bright: #E3C57E; /* highlights, hovers */
+  --cp-gold-dark:   #9A7F42; /* gradient shadow (emblem only) */
+  --cp-bone:        #EDE8DC; /* primary text */
+  --cp-stone:       #8F8A80; /* secondary text */
+  --cp-line:        rgba(198, 167, 94, 0.25); /* hairline gold rules */
+
+  /* Semantic aliases */
+  --cp-bg:            var(--cp-onyx);
+  --cp-surface:       var(--cp-graphite);
+  --cp-surface-card:  var(--cp-graphite-2);
+  --cp-text-body:     var(--cp-bone);
+  --cp-text-muted:    var(--cp-stone);
+  --cp-accent:        var(--cp-gold);
+  --cp-accent-hover:  var(--cp-gold-bright);
+  --cp-border:        1px solid var(--cp-line);
+
+  /* Feedback (derived — stay in-palette, desaturated) */
+  --cp-danger:  #B05A4A;
+  --cp-success: #7E8F6E;
+}

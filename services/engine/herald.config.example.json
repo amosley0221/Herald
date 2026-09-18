@@ -1,0 +1,160 @@
+{
+  "_comment": [
+    "Copy to herald.config.json (or point HERALD_CONFIG at it) and edit.",
+    "Run `npm run init -w @herald/engine` to generate one with a fresh auth token.",
+    "",
+    "Every source below is an example. Replace the board slugs and Workday",
+    "tenants with the companies you actually want Herald to watch."
+  ],
+
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8787,
+    "publicUrl": "https://herald.example.com"
+  },
+
+  "auth": { "token": null },
+
+  "storage": { "dataDir": "./data" },
+
+  "schedule": {
+    "crawlCron": "0 * * * *",
+    "trackCron": "*/30 * * * *",
+    "crawlOnBoot": false,
+    "enabled": true
+  },
+
+  "llm": {
+    "scoreModel": "claude-sonnet-5",
+    "writeModel": "claude-sonnet-5",
+    "concurrency": 4,
+    "maxScoresPerCrawl": 400
+  },
+
+  "matching": { "feedFloor": 60, "initialLookbackHours": 48 },
+
+  "apply": {
+    "enabled": true,
+    "headless": true,
+    "manualOnlyHosts": ["linkedin.com", "www.linkedin.com"]
+  },
+
+  "notifications": {
+    "enabled": true,
+    "provider": "fcm",
+    "fcmServiceAccountFile": "./secrets/fcm-service-account.json"
+  },
+
+  "tracking": {
+    "enabled": false,
+    "provider": "gmail",
+    "gmailCredentialsFile": "./secrets/gmail-credentials.json",
+    "gmailLabel": "Herald"
+  },
+
+  "releases": {
+    "indexUrl": "https://amosley0221.github.io/herald/releases/index.json"
+  },
+
+  "sources": [
+    {
+      "id": "greenhouse",
+      "name": "Greenhouse",
+      "adapter": "greenhouse",
+      "priority": 10,
+      "rateLimitPerMinute": 60,
+      "options": {
+        "boards": ["example-company", "another-company"]
+      }
+    },
+    {
+      "id": "lever",
+      "name": "Lever",
+      "adapter": "lever",
+      "priority": 10,
+      "options": {
+        "sites": ["example-company"]
+      }
+    },
+    {
+      "id": "ashby",
+      "name": "Ashby",
+      "adapter": "ashby",
+      "priority": 10,
+      "options": {
+        "boards": ["example-company"]
+      }
+    },
+    {
+      "id": "workday",
+      "name": "Workday",
+      "adapter": "workday",
+      "priority": 10,
+      "rateLimitPerMinute": 20,
+      "options": {
+        "maxPages": 5,
+        "tenants": [
+          {
+            "tenant": "example",
+            "host": "wd1.myworkdayjobs.com",
+            "site": "External_Career_Site",
+            "company": "Example Corp"
+          }
+        ]
+      }
+    },
+    {
+      "id": "aggregator",
+      "name": "Aggregator CLI",
+      "adapter": "command",
+      "enabled": false,
+      "priority": 1,
+      "options": {
+        "command": "pinloop",
+        "args": ["search", "--since", "{since}", "--json"],
+        "format": "ndjson"
+      },
+      "fieldMap": {
+        "id": "id",
+        "title": "title",
+        "company": "company",
+        "location": "location",
+        "remote": "remote",
+        "payMin": "salary.min",
+        "payMax": "salary.max",
+        "payCurrency": "salary.currency",
+        "url": "url",
+        "applyUrl": "apply_url",
+        "postedAt": "posted_at",
+        "description": "description"
+      }
+    },
+    {
+      "id": "custom-board",
+      "name": "A board with its own JSON API",
+      "adapter": "json",
+      "enabled": false,
+      "priority": 5,
+      "options": {
+        "url": "https://jobs.example.com/api/postings?page={page}",
+        "listPath": "data.results",
+        "maxPages": 3,
+        "pageStart": 1
+      },
+      "auth": { "type": "bearer", "tokenEnv": "CUSTOM_BOARD_TOKEN" },
+      "fieldMap": {
+        "id": "uuid",
+        "title": "name",
+        "company": "organisation.name",
+        "location": "office.city",
+        "remote": "is_remote",
+        "payMin": "compensation.min",
+        "payMax": "compensation.max",
+        "url": "links.public",
+        "applyUrl": "links.apply",
+        "postedAt": "published_at",
+        "description": "body_html"
+      }
+    }
+  ]
+}

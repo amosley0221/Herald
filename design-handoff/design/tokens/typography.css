@@ -1,0 +1,21 @@
+/* Crowned Pixel — Typography tokens */
+:root {
+  --cp-font-display: 'Cinzel', Georgia, serif;   /* headlines, wordmark, numerals; wt 500–700 */
+  --cp-font-body:    'Jost', system-ui, sans-serif; /* body, UI, labels; wt 300–500 */
+
+  --cp-tracking-display: 0.02em;
+  --cp-tracking-label:   0.18em; /* uppercase labels */
+
+  /* Type scale */
+  --cp-text-hero:    clamp(40px, 5vw, 64px);
+  --cp-text-h1:      40px;
+  --cp-text-h2:      28px;
+  --cp-text-h3:      20px;
+  --cp-text-body-lg: 18px;
+  --cp-text-body-md: 16px;
+  --cp-text-label:   12px;
+  --cp-text-caption: 13px;
+
+  --cp-leading-display: 1.15;
+  --cp-leading-body:    1.6;
+}
