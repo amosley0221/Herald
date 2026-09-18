@@ -37,34 +37,58 @@ const changelog = readFileSync(changelogPath, 'utf8');
 
 // ── Cut the Unreleased section ──────────────────────────────────────────────
 
+/** Returns the body of a `## [heading]` section, or null when it is absent. */
+function sectionBody(text, heading) {
+  const match = heading.exec(text);
+  if (!match) return null;
+  const start = match.index + match[0].length;
+  const next = text.slice(start).search(/^## /m);
+  return (next === -1 ? text.slice(start) : text.slice(start, start + next)).trim();
+}
+
 const unreleasedHeading = /^## \[Unreleased\].*$/m;
-const match = unreleasedHeading.exec(changelog);
-if (!match) {
-  console.error('CHANGELOG.md has no "## [Unreleased]" heading to cut.');
-  process.exit(1);
-}
+const versionHeading = new RegExp(`^## \\[${version.replace(/\./g, '\\.')}\\].*$`, 'm');
 
-const bodyStart = match.index + match[0].length;
-const nextHeading = changelog.slice(bodyStart).search(/^## /m);
-const body = (nextHeading === -1 ? changelog.slice(bodyStart) : changelog.slice(bodyStart, bodyStart + nextHeading)).trim();
+// A release that was already cut — because an earlier run got this far and a
+// later job failed — must be re-runnable. Reuse the existing section rather
+// than failing on an Unreleased block that is now legitimately empty.
+const alreadyCut = versionHeading.test(changelog);
 
-if (!body) {
-  console.error(
-    'The Unreleased section is empty. Every release needs notes — that is the point of the release-notes requirement.',
+let body;
+let cut = changelog;
+
+if (alreadyCut) {
+  body = sectionBody(changelog, versionHeading);
+  console.log(`${version} was already cut; reusing its notes and regenerating the feeds.`);
+  if (!body) {
+    console.error(`CHANGELOG.md has a [${version}] heading but no notes under it.`);
+    process.exit(1);
+  }
+} else {
+  if (!unreleasedHeading.test(changelog)) {
+    console.error('CHANGELOG.md has no "## [Unreleased]" heading to cut.');
+    process.exit(1);
+  }
+  body = sectionBody(changelog, unreleasedHeading);
+  if (!body) {
+    console.error(
+      'The Unreleased section is empty. Every release needs notes — that is the point of the release-notes requirement.',
+    );
+    process.exit(1);
+  }
+  cut = changelog.replace(
+    unreleasedHeading,
+    `## [Unreleased]\n\n## [${version}] — ${today}`,
   );
-  process.exit(1);
 }
-
-const cut = changelog.replace(
-  unreleasedHeading,
-  `## [Unreleased]\n\n## [${version}] — ${today}`,
-);
 
 // ── Build the feeds ─────────────────────────────────────────────────────────
 
+const previous = existing0(version);
 const entry = {
   version,
-  date: today,
+  // Keep the date the release was first cut on; a re-run is not a new release.
+  date: previous?.date ?? today,
   notesMarkdown: body,
   androidVersionCode: androidVersionCode(version),
   // Builds older than this are refused an update path and told to reinstall.
@@ -74,6 +98,11 @@ const entry = {
   androidApkUrl: null,
   patches: [],
 };
+
+function existing0(v) {
+  const path = resolve(releasesDir, `${v}.json`);
+  return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null;
+}
 
 mkdirSync(releasesDir, { recursive: true });
 

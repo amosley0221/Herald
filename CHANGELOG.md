@@ -11,6 +11,15 @@ is rejected by CI.
 
 ## [Unreleased]
 
+### Fixed
+- The release workflow used `android-actions/setup-android`, which installs the
+  `tools` SDK package that Google has removed — sdkmanager exits 1 on it and
+  failed the Android job outright. The runner already ships the SDK, so the
+  step now just accepts licences.
+- Cutting a release is idempotent. A run whose later jobs failed left the
+  CHANGELOG already cut, so re-running refused with "the Unreleased section is
+  empty". An already-cut version now reuses its notes and original date instead.
+
 ## [0.1.0] — 2026-09-18
 
 ### Added
