@@ -12,6 +12,11 @@ is rejected by CI.
 ## [Unreleased]
 
 ### Fixed
+- The desktop release job ran a bare `npm ci`, which installs every workspace —
+  including the engine, whose `better-sqlite3` has to be compiled from source on
+  Windows and fails there. Each job now installs only the workspaces it needs.
+
+### Fixed
 - The release workflow used `android-actions/setup-android`, which installs the
   `tools` SDK package that Google has removed — sdkmanager exits 1 on it and
   failed the Android job outright. The runner already ships the SDK, so the
