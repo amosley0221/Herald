@@ -10,8 +10,9 @@ import {
 } from '@herald/core';
 import { LocalBackend } from '../engine/local-backend';
 import { getApiKey, setApiKey } from '../engine/settings';
+import { startDailyScan, stopDailyScan } from '../engine/schedule';
 import { appConfig } from '../lib/config';
-import { syncPushToken } from '../lib/notifications';
+import { prepareNotifications, syncPushToken } from '../lib/notifications';
 import {
   clearCredentials, isOnboarded, loadCredentials, saveCredentials, setOnboarded,
   type EngineCredentials,
@@ -176,7 +177,16 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
     // either way: a device that declined notifications still works normally.
     if (backend instanceof HeraldClient) {
       void syncPushToken(backend).catch(() => undefined);
+      // An engine is doing the scanning, so this device should not also wake up
+      // to do it — that would score the same postings twice and pay twice.
+      void stopDailyScan().catch(() => undefined);
+      return;
     }
+
+    void (async () => {
+      await prepareNotifications().catch(() => false);
+      await startDailyScan().catch(() => false);
+    })();
   }, [backend, refresh]);
 
   // Refresh when the app comes back to the foreground, so a match approved
