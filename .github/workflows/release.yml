@@ -268,6 +268,8 @@ jobs:
         ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != ''
             && '--config {"bundle":{"createUpdaterArtifacts":true}}'
             || '' }}
+      # `secrets` is not a valid context in a step-level `if`, but it is here.
+      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -299,15 +301,37 @@ jobs:
       - run: npm ci --workspace @herald/core --workspace @herald/desktop --include-workspace-root
       - run: npm run build --workspace @herald/core
 
+      # Two near-identical steps, because an Apple certificate cannot be passed
+      # conditionally. An unset secret becomes the empty string and the variable
+      # is still *defined*, and Tauri decides to codesign on the variable being
+      # present rather than on it holding anything — so it ran `security import`
+      # on an empty certificate and failed the build after the app was built.
+      # The only way to leave a variable undefined is to omit it from the step.
       - name: Build and publish
+        if: env.HAS_APPLE_CERT != 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Signs the update so a compromised host cannot push a build of its own.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS: Gatekeeper blocks an unnotarized update, so this is required
-          # for the macOS updater to work at all.
+        with:
+          projectPath: apps/desktop
+          tagName: v${{ needs.notes.outputs.version }}
+          releaseName: Herald ${{ needs.notes.outputs.version }}
+          releaseBody: See the release notes.
+          releaseDraft: false
+          args: ${{ matrix.args }} ${{ env.UPDATER_CONFIG }}
+
+      # The same build, signed and notarized. Gatekeeper blocks an unnotarized
+      # update, so macOS self-updating only works down this path.
+      - name: Build and publish (signed for macOS)
+        if: env.HAS_APPLE_CERT == 'true'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}

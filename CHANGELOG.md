@@ -12,6 +12,14 @@ is rejected by CI.
 ## [Unreleased]
 
 ### Fixed
+- The macOS build failed at code signing on a repository with no Apple
+  certificate. An unset secret becomes the empty string, but the environment
+  variable is still defined, and Tauri decides to codesign on the variable
+  being present rather than on it holding a certificate — so it tried to
+  import an empty one and failed after the app had already been built. macOS
+  now builds unsigned unless a certificate is actually configured. An unsigned
+  build installs after a right-click → Open; it cannot self-update, because
+  Gatekeeper blocks an unnotarized update.
 - The desktop installers for Windows and macOS could not be built. Neither
   platform can take a bare list of PNGs — Windows needs an `.ico` for its
   resource file, and macOS maps each PNG onto a named icon type, which the
