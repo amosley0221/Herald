@@ -11,6 +11,21 @@ is rejected by CI.
 
 ## [Unreleased]
 
+### Changed
+- The ingest and matching pipeline — the source adapters, dedupe, prefilter and
+  the posting hashes — moved from the engine into `@herald/core`, which is
+  plain TypeScript that runs in React Native. The engine's own modules are now
+  re-exports, so there is one implementation of what counts as a duplicate and
+  what survives the prefilter rather than two that drift. Groundwork for
+  running Herald on the phone alone, with no engine to host.
+
+### Added
+- A portable SHA-256 in `@herald/core`. `node:crypto` does not exist in React
+  Native and `expo-crypto`'s digest is asynchronous, which would make
+  `dedupeKey` async and infect every caller. Pinned by tests to `node:crypto`
+  across the message-padding boundaries and multi-byte input, so a posting
+  hashes the same on a phone as on a server.
+
 ### Fixed
 - The APK failed to sign, after a full eleven-minute build, with
   `BadPaddingException` — which names neither the secret at fault nor the fact
