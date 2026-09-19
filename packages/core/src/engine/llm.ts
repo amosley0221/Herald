@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { DEFAULT_PROMPTS, renderPrompt } from '../prompts.js';
-import { base64ToUtf8, parseModelJson } from '../base64.js';
+import { base64ToBytes, base64ToUtf8, parseModelJson } from '../base64.js';
+import { docxToText, looksLikeZip } from '../docx.js';
 import { thousands } from '../format.js';
 import type { Preferences, Profile } from '../types.js';
 import type { RawPosting } from '../sources/types.js';
@@ -114,22 +115,26 @@ export class Llm {
   /**
    * Reads a resume.
    *
-   * The file goes to the model as a document rather than being parsed on the
-   * phone: `unpdf` and `mammoth` are Node libraries with no React Native
-   * equivalent, and Claude reads PDFs natively. Plain text is sent as text.
+   * A PDF goes to the model as a document, since Claude reads those natively
+   * and no library is needed. A .docx cannot: it is a ZIP archive, and sending
+   * its bytes as text produces lone surrogates that are not valid JSON — the
+   * API rejects the request before ever seeing the resume. So its text is
+   * extracted here first. Anything else is treated as plain text, and checked
+   * before it is sent rather than being allowed to fail as a puzzle.
    */
   async parseResume(
     file: { base64: string; mimeType: string; name: string },
   ): Promise<{ profile: Partial<Profile>; text: string; warnings: string[] }> {
     const prompt = DEFAULT_PROMPTS['resume-parse'];
-    const isPdf = file.mimeType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    const name = file.name.toLowerCase();
+    const isPdf = file.mimeType === 'application/pdf' || name.endsWith('.pdf');
 
     const content: Anthropic.ContentBlockParam[] = isPdf
       ? [
           { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: file.base64 } },
           { type: 'text', text: prompt },
         ]
-      : [{ type: 'text', text: `${prompt}\n\n${base64ToUtf8(file.base64)}` }];
+      : [{ type: 'text', text: `${prompt}\n\n${resumeText(file, name)}` }];
 
     const message = await this.client.messages.create({
       model: this.models.writeModel,
@@ -170,6 +175,39 @@ export class Llm {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * The resume as text, whatever was handed over.
+ *
+ * The check for a ZIP is by content rather than by name, because a file saved
+ * without an extension, or with the wrong one, is still whatever it is.
+ */
+function resumeText(file: { base64: string; mimeType: string }, name: string): string {
+  const bytes = base64ToBytes(file.base64);
+
+  if (
+    name.endsWith('.docx')
+    || file.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    || looksLikeZip(bytes)
+  ) {
+    return docxToText(bytes);
+  }
+
+  if (name.endsWith('.doc') || file.mimeType === 'application/msword') {
+    throw new Error(
+      'That is an old-format .doc, which Herald cannot read. Save it as .docx or PDF and try again.',
+    );
+  }
+
+  const text = base64ToUtf8(file.base64);
+  // A lone surrogate means these were never UTF-8 text, and sending them would
+  // fail as an unexplained 400 from the API rather than as something to act on.
+  if (/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text)) {
+    throw new Error('Herald could not read that file as text. Try a PDF or a .docx.');
+  }
+  if (!text.trim()) throw new Error('That file appears to be empty.');
+  return text;
+}
 
 function firstText(message: Anthropic.Message): string {
   for (const block of message.content) {
