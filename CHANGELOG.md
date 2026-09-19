@@ -12,6 +12,19 @@ is rejected by CI.
 ## [Unreleased]
 
 ### Fixed
+- The Android release build ran out of Metaspace. Metaspace is allocated
+  outside the heap, so Expo's default `-Xmx2048m -XX:MaxMetaspaceSize=512m`
+  capped class metadata at 512m however much heap was free — and the New
+  Architecture's codegen and Kotlin compilation need far more. The build now
+  gets 2g of Metaspace and 4g of heap.
+- An Android build that failed kept its job alive until the timeout. Gradle
+  forks worker and Kotlin daemon JVMs that inherit its stdout and outlive it,
+  and a CI step ends when its stdout pipe closes rather than when its main
+  process exits — so a build that had already failed in nine minutes held the
+  job open for another eighty. It read from outside as a hang, and cost this
+  release three runs and several hours. Gradle now writes to a file that is
+  streamed separately, so the step ends when the build does and reports its
+  real exit status.
 - The macOS build failed at code signing on a repository with no Apple
   certificate. An unset secret becomes the empty string, but the environment
   variable is still defined, and Tauri decides to codesign on the variable
