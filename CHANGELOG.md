@@ -11,6 +11,14 @@ is rejected by CI.
 
 ## [Unreleased]
 
+### Fixed
+- The Android release build could hang indefinitely. Gradle inherited the
+  runner's stdin, so anything prompting for input waited forever, and a job's
+  logs cannot be read until it ends — making the hang invisible for the six
+  hours until the default timeout. The build now gets no stdin, the job times
+  out at 45 minutes, and the SDK licence step reports what is installed instead
+  of discarding its own errors.
+
 ### Changed
 - The Android release build targets `arm64-v8a` only, and Gradle's caches now
   persist between runs. The default builds all four ABIs, so three quarters of
