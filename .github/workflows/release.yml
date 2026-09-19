@@ -93,6 +93,10 @@ jobs:
     name: Android
     needs: notes
     runs-on: ubuntu-latest
+    # A Gradle build that blocks on a prompt would otherwise sit until the
+    # six-hour default, and its logs cannot be read until the job ends — so a
+    # hang is invisible exactly while you most need to see it.
+    timeout-minutes: 45
     env:
       # `secrets` is not a valid context in a step-level `if`, but it is in job
       # env, so the optional OTA steps test this instead.
@@ -118,11 +122,14 @@ jobs:
       # exits 1 on it and fails the whole job.
       - name: Accept the Android SDK licences
         run: |
+          set -euo pipefail
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
           echo "ANDROID_HOME=$ANDROID_HOME"
           echo "sdkmanager=$SDKMANAGER"
-          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
-          ls "$ANDROID_HOME/platforms"
+          yes | "$SDKMANAGER" --licenses > /dev/null
+          echo "--- platforms ---";    ls "$ANDROID_HOME/platforms"
+          echo "--- build-tools ---";  ls "$ANDROID_HOME/build-tools"
+          echo "--- ndk ---";          ls "$ANDROID_HOME/ndk" 2>/dev/null || echo "(no NDK installed)"
 
       # Gradle's caches survive between runs, so only the first release pays the
       # full dependency download and native compile.
@@ -171,12 +178,12 @@ jobs:
           # of the work is for architectures no real device uses: the x86 pair
           # exists for emulators, and armeabi-v7a for phones predating the
           # 64-bit requirement. Add ABIs back here if an old device needs one.
-          ./gradlew assembleRelease --no-daemon \
+          ./gradlew assembleRelease --no-daemon --console=plain --stacktrace \
             -PreactNativeArchitectures=arm64-v8a \
             -PHERALD_STORE_FILE=herald.keystore \
             -PHERALD_STORE_PASSWORD="$STORE_PASSWORD" \
             -PHERALD_KEY_ALIAS="$KEY_ALIAS" \
-            -PHERALD_KEY_PASSWORD="$KEY_PASSWORD"
+            -PHERALD_KEY_PASSWORD="$KEY_PASSWORD" < /dev/null
 
       # The name is what the release feed records and the in-app updater fetches.
       - name: Name the APK for the release
