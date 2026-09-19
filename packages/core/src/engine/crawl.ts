@@ -1,13 +1,15 @@
-import {
-  ashbyAdapter, collapse, contentHash, dedupeKey, fingerprint, greenhouseAdapter,
-  jsonAdapter, leverAdapter, prefilter, workdayAdapter,
-  type Logger, type Preferences, type Profile, type RawPosting,
-  type SourceAdapter, type SourceConfig,
-} from '@herald/core';
-import * as db from './db';
-import { createHttpClient, resolveSourceAuth } from './http';
-import { Llm, LlmAuthError } from './llm';
-import { getApiKey, getFeedFloor, getModels, getSources } from './settings';
+import { collapse, contentHash, dedupeKey, fingerprint } from '../pipeline/dedupe.js';
+import { prefilter } from '../pipeline/prefilter.js';
+import { greenhouseAdapter } from '../sources/greenhouse.js';
+import { leverAdapter } from '../sources/lever.js';
+import { ashbyAdapter } from '../sources/ashby.js';
+import { workdayAdapter } from '../sources/workday.js';
+import { jsonAdapter } from '../sources/json.js';
+import type { Logger, RawPosting, SourceAdapter, SourceConfig } from '../sources/types.js';
+import type { Preferences } from '../types.js';
+import { createHttpClient, resolveSourceAuth } from './http.js';
+import { Llm, LlmAuthError } from './llm.js';
+import type { EnginePlatform } from './ports.js';
 
 /**
  * The scan.
@@ -48,19 +50,25 @@ export interface CrawlOutcome {
 type Candidate = RawPosting & { source: string; sourcePriority: number; dedupeKey: string };
 
 /** A scan already running; a second one would double-spend the API budget. */
-let inFlight: Promise<CrawlOutcome> | null = null;
+const inFlight = new WeakMap<EnginePlatform, Promise<CrawlOutcome>>();
 
-export function crawlInProgress(): boolean {
-  return inFlight !== null;
+export function crawlInProgress(platform: EnginePlatform): boolean {
+  return inFlight.has(platform);
 }
 
-export async function runCrawl(log: Logger = consoleLogger()): Promise<CrawlOutcome> {
-  if (inFlight) return inFlight;
-  inFlight = execute(log).finally(() => { inFlight = null; });
-  return inFlight;
+export async function runCrawl(platform: EnginePlatform): Promise<CrawlOutcome> {
+  const running = inFlight.get(platform);
+  if (running) return running;
+
+  const log = platform.log ?? silentLogger();
+  const promise = execute(platform, log).finally(() => { inFlight.delete(platform); });
+  inFlight.set(platform, promise);
+  return promise;
 }
 
-async function execute(log: Logger): Promise<CrawlOutcome> {
+async function execute(platform: EnginePlatform, log: Logger): Promise<CrawlOutcome> {
+  const db = platform.store;
+  const { settings } = platform;
   const empty: CrawlCounts = { read: 0, kept: 0, scored: 0, cached: 0, matched: 0, failed: 0 };
 
   // Everything that would make the scan pointless is checked before it starts,
@@ -73,30 +81,30 @@ async function execute(log: Logger): Promise<CrawlOutcome> {
   if (!preferences) {
     return { counts: empty, created: [], skipped: 'Preferences are not set up yet.' };
   }
-  const apiKey = await getApiKey();
+  const apiKey = await settings.getApiKey();
   if (!apiKey) {
     return { counts: empty, created: [], skipped: 'Add your Anthropic API key in Preferences — scanning needs it to score postings.' };
   }
-  const sources = (await getSources()).filter((source) => source.enabled && hasTargets(source));
+  const sources = (await settings.getSources()).filter((source) => source.enabled && hasTargets(source));
   if (sources.length === 0) {
     return { counts: empty, created: [], skipped: 'No job sources are configured yet. Add one in Preferences.' };
   }
 
-  const llm = new Llm(apiKey, await getModels());
-  const feedFloor = await getFeedFloor();
+  const llm = new Llm(apiKey, await settings.getModels(), platform.fetch);
+  const feedFloor = await settings.getFeedFloor();
   const counts: CrawlCounts = { ...empty };
   const runId = await db.startCrawlRun();
   const controller = new AbortController();
 
   try {
-    const since = await windowStart();
+    const since = await windowStart(platform);
     log.info('scan started', { since: since.toISOString(), sources: sources.length });
 
-    const candidates = await ingest(sources, since, preferences, counts, controller.signal, log);
+    const candidates = await ingest(platform, sources, since, preferences, counts, controller.signal, log);
     log.info('ingest complete', { read: counts.read, kept: candidates.length });
 
     const created = await scoreAndStore(
-      candidates, stored.resumeText, preferences, llm, feedFloor, counts, log,
+      platform, candidates, stored.resumeText, preferences, llm, feedFloor, counts, log,
     );
 
     await db.finishCrawlRun(runId, {
@@ -119,6 +127,7 @@ async function execute(log: Logger): Promise<CrawlOutcome> {
 // ── Ingest ──────────────────────────────────────────────────────────────────
 
 async function ingest(
+  platform: EnginePlatform,
   sources: SourceConfig[],
   since: Date,
   preferences: Preferences,
@@ -126,6 +135,7 @@ async function ingest(
   signal: AbortSignal,
   log: Logger,
 ): Promise<Candidate[]> {
+  const db = platform.store;
   const kept = new Map<string, Candidate>();
 
   // Sources are read in parallel: one slow Workday tenant should not hold up a
@@ -143,6 +153,7 @@ async function ingest(
       rateLimitPerMinute: source.rateLimitPerMinute,
       log: sourceLog,
       signal,
+      fetchImpl: platform.fetch,
     });
 
     try {
@@ -177,6 +188,7 @@ async function ingest(
 // ── Score ───────────────────────────────────────────────────────────────────
 
 async function scoreAndStore(
+  platform: EnginePlatform,
   candidates: Candidate[],
   resumeText: string,
   preferences: Preferences,
@@ -185,6 +197,7 @@ async function scoreAndStore(
   counts: CrawlCounts,
   log: Logger,
 ): Promise<CrawlOutcome['created']> {
+  const db = platform.store;
   const resumeFingerprint = fingerprint(resumeText);
   const created: CrawlOutcome['created'] = [];
 
@@ -242,8 +255,8 @@ async function scoreAndStore(
  * boards backdate postings and a posting that appears late should still be
  * seen. A first run takes three days rather than everything ever published.
  */
-async function windowStart(): Promise<Date> {
-  const last = await db.lastCrawlAt();
+async function windowStart(platform: EnginePlatform): Promise<Date> {
+  const last = await platform.store.lastCrawlAt();
   if (!last) return new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
   return new Date(last.getTime() - 60 * 60 * 1000);
 }
@@ -268,10 +281,8 @@ function child(log: Logger, bindings: Record<string, unknown>): Logger {
   };
 }
 
-function consoleLogger(): Logger {
-  const write = (level: string) => (message: string, fields?: Record<string, unknown>) => {
-    // eslint-disable-next-line no-console
-    console.log(`[herald:${level}] ${message}`, fields ?? '');
-  };
-  return { error: write('error'), warn: write('warn'), info: write('info'), debug: write('debug') };
+/** Used when the platform supplies no logger; the scan is not worth crashing over. */
+function silentLogger(): Logger {
+  const nothing = (): void => {};
+  return { error: nothing, warn: nothing, info: nothing, debug: nothing };
 }

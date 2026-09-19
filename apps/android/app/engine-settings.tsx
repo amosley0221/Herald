@@ -5,11 +5,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { strings } from '@herald/core';
 import { BodyText, Button, Hairline, Label, Loading } from '../src/components/primitives';
 import { body, color, display, space } from '../src/theme';
-import { DEFAULT_MODELS } from '../src/engine/llm';
+import { DEFAULT_MODELS } from '@herald/core';
 import {
   DEFAULT_FEED_FLOOR, getApiKey, getFeedFloor, getModels, setApiKey, setFeedFloor, setModels,
 } from '../src/engine/settings';
-import { getReleasesIndexUrl, setReleasesIndexUrl } from '../src/engine/releases';
+import { getReleasesIndexUrl, setReleasesIndexUrl } from '../src/engine/settings';
 
 /**
  * The settings that only matter when this device is doing the work.

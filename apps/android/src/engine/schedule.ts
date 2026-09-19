@@ -5,7 +5,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { strings } from '@herald/core';
 import type { Preferences } from '@herald/core';
 import { CHANNELS } from '../lib/notifications';
-import { runCrawl, type CrawlOutcome } from './crawl';
+import type { CrawlOutcome } from '@herald/core';
+import { runCrawl } from './platform';
 import * as db from './db';
 
 /**

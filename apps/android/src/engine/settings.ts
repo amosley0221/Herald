@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { defineSource, type SourceConfig } from '@herald/core';
-import { DEFAULT_MODELS, type ModelConfig } from './llm';
+import { DEFAULT_MODELS, type ModelConfig } from '@herald/core';
 
 /**
  * What the phone needs to do the engine's job, and where it is kept.
@@ -19,10 +19,11 @@ const API_KEY = 'herald.anthropic.apiKey';
 const SOURCES = 'herald.sources';
 const MODELS = 'herald.models';
 const FEED_FLOOR = 'herald.feedFloor';
+const FEED_URL = 'herald.releasesIndexUrl';
 
-/** Scores below this never become matches at all, so lowering the threshold
- *  later cannot resurrect something already judged unfit. Matches the engine. */
-export const DEFAULT_FEED_FLOOR = 60;
+import { DEFAULT_FEED_FLOOR } from '@herald/core';
+
+export { DEFAULT_FEED_FLOOR };
 
 export async function getApiKey(): Promise<string | null> {
   try {
@@ -88,4 +89,28 @@ export async function getFeedFloor(): Promise<number> {
 
 export async function setFeedFloor(floor: number): Promise<void> {
   await AsyncStorage.setItem(FEED_FLOOR, String(Math.round(floor)));
+}
+
+// ── Release feed ────────────────────────────────────────────────────────────
+
+/**
+ * Where Herald checks for new versions of itself.
+ *
+ * Configuration rather than a constant: it comes from the build or from
+ * Preferences, so a fork publishes to its own feed without touching code.
+ */
+export async function getReleasesIndexUrl(): Promise<string | null> {
+  const stored = await AsyncStorage.getItem(FEED_URL);
+  if (stored?.trim()) return stored.trim();
+
+  const Constants = (await import('expo-constants')).default;
+  const fromBuild = (Constants.expoConfig?.extra as { releasesIndexUrl?: string } | undefined)
+    ?.releasesIndexUrl;
+  return fromBuild?.trim() ? fromBuild.trim() : null;
+}
+
+export async function setReleasesIndexUrl(url: string): Promise<void> {
+  const trimmed = url.trim();
+  if (trimmed) await AsyncStorage.setItem(FEED_URL, trimmed);
+  else await AsyncStorage.removeItem(FEED_URL);
 }

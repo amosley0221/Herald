@@ -12,6 +12,11 @@ export * from './version.js';
 // and what survives the prefilter, not two that drift.
 export * from './apply.js';
 export * from './webform.js';
+export * from './engine/ports.js';
+export * from './engine/llm.js';
+export * from './engine/http.js';
+export * from './engine/crawl.js';
+export * from './engine/backend.js';
 export * from './base64.js';
 export * from './hash.js';
 export * from './prompts.js';

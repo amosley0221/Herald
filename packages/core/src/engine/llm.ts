@@ -1,8 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
-import {
-  DEFAULT_PROMPTS, base64ToUtf8, parseModelJson, renderPrompt, thousands,
-  type Preferences, type Profile, type RawPosting,
-} from '@herald/core';
+import { DEFAULT_PROMPTS, renderPrompt } from '../prompts.js';
+import { base64ToUtf8, parseModelJson } from '../base64.js';
+import { thousands } from '../format.js';
+import type { Preferences, Profile } from '../types.js';
+import type { RawPosting } from '../sources/types.js';
+import { DEFAULT_MODELS, type ModelConfig } from './ports.js';
 
 /**
  * Talks to Claude from the phone.
@@ -12,20 +14,6 @@ import {
  * way. The key is the user's own, kept in the Android keystore and sent only
  * to api.anthropic.com.
  */
-
-export interface ModelConfig {
-  /** Scoring runs once per surviving posting, so cheap and fast matters here. */
-  scoreModel: string;
-  /** Cover letters and resume parsing get the same model by default. */
-  writeModel: string;
-  maxOutputTokens: number;
-}
-
-export const DEFAULT_MODELS: ModelConfig = {
-  scoreModel: 'claude-sonnet-5',
-  writeModel: 'claude-sonnet-5',
-  maxOutputTokens: 2048,
-};
 
 export interface ScoreResult {
   score: number;
@@ -47,11 +35,20 @@ export class Llm {
   constructor(
     apiKey: string,
     private readonly models: ModelConfig = DEFAULT_MODELS,
+    /**
+     * A browser context cannot call api.anthropic.com directly, so the desktop
+     * app passes Tauri's native fetch here. React Native passes nothing and
+     * gets the global one.
+     */
+    fetchImpl?: typeof globalThis.fetch,
   ) {
     if (!apiKey.trim()) {
       throw new LlmAuthError('No Anthropic API key is set. Add one in Preferences.');
     }
-    this.client = new Anthropic({ apiKey });
+    this.client = new Anthropic({
+      apiKey,
+      ...(fetchImpl ? { fetch: fetchImpl } : {}),
+    });
   }
 
   /**

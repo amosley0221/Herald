@@ -1,4 +1,4 @@
-import type { HttpClient, Logger, SourceConfig } from '@herald/core';
+import type { HttpClient, Logger, SourceConfig } from '../sources/types.js';
 
 /**
  * The HTTP client the adapters are given.
@@ -14,6 +14,8 @@ export function createHttpClient(options: {
   timeoutMs?: number;
   log: Logger;
   signal: AbortSignal;
+  /** Tauri's native fetch on desktop; the global one everywhere else. */
+  fetchImpl?: typeof globalThis.fetch;
 }): HttpClient {
   const minIntervalMs = 60_000 / Math.max(1, options.rateLimitPerMinute ?? 60);
   const timeoutMs = options.timeoutMs ?? 30_000;
@@ -31,7 +33,7 @@ export function createHttpClient(options: {
     options.signal.addEventListener('abort', onAbort);
 
     try {
-      const response = await fetch(url, {
+      const response = await (options.fetchImpl ?? fetch)(url, {
         ...init,
         signal: timer.signal,
         headers: { Accept: 'application/json', ...options.headers, ...(init?.headers ?? {}) },

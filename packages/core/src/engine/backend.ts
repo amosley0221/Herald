@@ -1,13 +1,13 @@
-import {
-  BUILTIN_FIELD_RULES, fallbackFields, isManualOnlyHost,
-  type ApplicationLogEntry, type HeraldBackend, type Match, type MatchStatus,
-  type PreparedApplication, type Preferences, type Profile, type ReleaseIndex,
-  type ResumeParseResult, type ResumeUpload,
-} from '@herald/core';
-import * as db from './db';
-import { runCrawl } from './crawl';
-import { Llm } from './llm';
-import { getApiKey, getModels } from './settings';
+import { BUILTIN_FIELD_RULES, fallbackFields, isManualOnlyHost } from '../apply.js';
+import type {
+  ApplicationLogEntry, Match, MatchStatus, PreparedApplication, Preferences,
+  Profile, ReleaseIndex, ResumeParseResult,
+} from '../types.js';
+import type { HeraldBackend } from '../backend.js';
+import type { ResumeUpload } from '../client.js';
+import { runCrawl } from './crawl.js';
+import { Llm } from './llm.js';
+import type { EnginePlatform } from './ports.js';
 
 /**
  * The engine, on the device.
@@ -18,37 +18,42 @@ import { getApiKey, getModels } from './settings';
  * available for anyone who would rather their phone sat idle.
  */
 export class LocalBackend implements HeraldBackend {
+  constructor(private readonly platform: EnginePlatform) {}
+
+  private get db() { return this.platform.store; }
+  private get settings() { return this.platform.settings; }
+
   // ── Profile ───────────────────────────────────────────────────────────────
 
   async getProfile(): Promise<Profile> {
-    const stored = await db.getProfile();
+    const stored = await this.db.getProfile();
     if (!stored) throw new Error('No resume has been uploaded yet.');
     return stored.profile;
   }
 
   async updateProfile(patch: Partial<Profile>): Promise<Profile> {
-    const stored = await db.getProfile();
+    const stored = await this.db.getProfile();
     const updated: Profile = {
       ...(stored?.profile ?? emptyProfile()),
       ...patch,
     };
-    await db.setProfile(updated);
+    await this.db.setProfile(updated);
     return updated;
   }
 
   async uploadResume(file: ResumeUpload): Promise<ResumeParseResult> {
-    const apiKey = await getApiKey();
+    const apiKey = await this.settings.getApiKey();
     if (!apiKey) {
       throw new Error('Add your Anthropic API key in Preferences before uploading a resume.');
     }
 
     const base64 = await readAsBase64(file);
-    const llm = new Llm(apiKey, await getModels());
+    const llm = new Llm(apiKey, await this.settings.getModels(), this.platform.fetch);
     const parsed = await llm.parseResume({
       base64, mimeType: file.mimeType, name: file.name,
     });
 
-    const existing = await db.getProfile();
+    const existing = await this.db.getProfile();
     // Parsed values fill gaps; anything already corrected by hand is kept, since
     // the user editing a field is a stronger signal than the model re-reading it.
     const profile: Profile = {
@@ -59,23 +64,23 @@ export class LocalBackend implements HeraldBackend {
       resumeUpdatedAt: new Date().toISOString(),
     };
 
-    await db.setProfile(profile, parsed.text);
+    await this.db.setProfile(profile, parsed.text);
     return { profile, warnings: parsed.warnings };
   }
 
   // ── Preferences ───────────────────────────────────────────────────────────
 
   async getPreferences(): Promise<Preferences> {
-    const stored = await db.getPreferences();
+    const stored = await this.db.getPreferences();
     if (stored) return stored;
     const defaults = defaultPreferences();
-    await db.setPreferences(defaults);
+    await this.db.setPreferences(defaults);
     return defaults;
   }
 
   async updatePreferences(patch: Partial<Preferences>): Promise<Preferences> {
     const updated = { ...(await this.getPreferences()), ...patch };
-    await db.setPreferences(updated);
+    await this.db.setPreferences(updated);
     return updated;
   }
 
@@ -87,11 +92,11 @@ export class LocalBackend implements HeraldBackend {
     const status = params.status === undefined
       ? undefined
       : Array.isArray(params.status) ? params.status : [params.status];
-    return db.listMatches({ status, limit: params.limit, since: params.since });
+    return this.db.listMatches({ status, limit: params.limit, since: params.since });
   }
 
   async getMatch(id: string): Promise<Match> {
-    const match = await db.getMatch(id);
+    const match = await this.db.getMatch(id);
     if (!match) throw new Error('That match is no longer available.');
     return match;
   }
@@ -105,11 +110,11 @@ export class LocalBackend implements HeraldBackend {
    * paying for a second cover letter.
    */
   async approve(id: string): Promise<PreparedApplication> {
-    const existing = await db.getPreparedApplication(id);
+    const existing = await this.db.getPreparedApplication(id);
     if (existing) return existing;
 
     const match = await this.getMatch(id);
-    const stored = await db.getProfile();
+    const stored = await this.db.getProfile();
     if (!stored?.resumeText) throw new Error('Upload your resume before applying.');
 
     const manualOnly = isManualOnlyHost(match.posting.applyUrl);
@@ -119,10 +124,10 @@ export class LocalBackend implements HeraldBackend {
     if (!manualOnly) {
       const preferences = await this.getPreferences();
       if (preferences.tailorLetter) {
-        const apiKey = await getApiKey();
+        const apiKey = await this.settings.getApiKey();
         if (apiKey) {
           try {
-            const llm = new Llm(apiKey, await getModels());
+            const llm = new Llm(apiKey, await this.settings.getModels(), this.platform.fetch);
             coverLetter = await llm.coverLetter(
               { ...match.posting, externalId: match.posting.id, raw: null },
               stored.resumeText, stored.profile,
@@ -156,9 +161,9 @@ export class LocalBackend implements HeraldBackend {
       preparedAt: new Date().toISOString(),
     };
 
-    await db.savePreparedApplication(prepared);
-    if (match.status === 'pending') await db.setMatchStatus(id, 'approved');
-    await db.appendLog(id, 'approved', manualOnly ? 'Manual only' : 'Prepared');
+    await this.db.savePreparedApplication(prepared);
+    if (match.status === 'pending') await this.db.setMatchStatus(id, 'approved');
+    await this.db.appendLog(id, 'approved', manualOnly ? 'Manual only' : 'Prepared');
     return prepared;
   }
 
@@ -173,7 +178,7 @@ export class LocalBackend implements HeraldBackend {
     id: string, fields?: Record<string, string>, coverLetter?: string,
   ): Promise<Match> {
     const preferences = await this.getPreferences();
-    const sentToday = await db.submittedToday();
+    const sentToday = await this.db.submittedToday();
     if (preferences.dailySubmitCap > 0 && sentToday >= preferences.dailySubmitCap) {
       throw new Error(
         `That is the ${preferences.dailySubmitCap} applications you allowed for today. The cap is in Preferences.`,
@@ -181,19 +186,19 @@ export class LocalBackend implements HeraldBackend {
     }
 
     const now = new Date().toISOString();
-    await db.setMatchStatus(id, 'applied', { submittedAt: now });
-    await db.appendLog(id, 'submitted', 'Submitted', { fields, coverLetter });
+    await this.db.setMatchStatus(id, 'applied', { submittedAt: now });
+    await this.db.appendLog(id, 'submitted', 'Submitted', { fields, coverLetter });
     return this.getMatch(id);
   }
 
   async skip(id: string): Promise<Match> {
-    await db.setMatchStatus(id, 'skipped');
-    await db.appendLog(id, 'skipped', 'Skipped');
+    await this.db.setMatchStatus(id, 'skipped');
+    await this.db.appendLog(id, 'skipped', 'Skipped');
     return this.getMatch(id);
   }
 
   async log(id: string): Promise<ApplicationLogEntry[]> {
-    const rows = await db.listLog(id);
+    const rows = await this.db.listLog(id);
     return rows.map((row, index) => ({
       id: `${id}-${index}`,
       matchId: id,
@@ -207,19 +212,37 @@ export class LocalBackend implements HeraldBackend {
   // ── Today ─────────────────────────────────────────────────────────────────
 
   async todayStats(): Promise<TodayStatsShape> {
-    return db.todayStats();
+    return this.db.todayStats();
   }
 
   async runCrawl(): Promise<{ started: true }> {
     // Deliberately not awaited: the Today screen shows progress and the scan can
     // outlive the tap that started it.
-    void runCrawl();
+    void runCrawl(this.platform);
     return { started: true };
   }
 
+  /**
+   * The release feed, read directly.
+   *
+   * Paired with an engine there is something to proxy and cache this; standalone
+   * there is not, and without it the in-app updater has nothing to check.
+   */
   async releases(): Promise<ReleaseIndex> {
-    const { fetchReleaseIndex } = await import('./releases');
-    return fetchReleaseIndex();
+    const url = await this.settings.getReleasesIndexUrl();
+    if (!url) {
+      throw new Error(
+        'No release feed is configured, so Herald cannot check for updates.',
+      );
+    }
+    const response = await this.platform.fetch(url, { headers: { Accept: 'application/json' } });
+    if (!response.ok) throw new Error(`The release feed returned ${response.status}.`);
+
+    const index = (await response.json()) as ReleaseIndex;
+    if (!index?.latest || !Array.isArray(index.releases)) {
+      throw new Error('That URL did not return a Herald release feed.');
+    }
+    return index;
   }
 }
 
@@ -255,12 +278,38 @@ function defaultPreferences(): Preferences {
   };
 }
 
-/** Reads an upload into base64, whichever shape the picker handed us. */
+/**
+ * Reads an upload into base64.
+ *
+ * Only the string and Blob shapes are handled here; a platform that hands back
+ * a file URI resolves it in its own adapter, since reading one needs a
+ * filesystem this layer deliberately does not know about.
+ */
 async function readAsBase64(file: ResumeUpload): Promise<string> {
   if (typeof file.data === 'string') return file.data;
-  if ('uri' in file.data) {
-    const FileSystem = await import('expo-file-system/legacy');
-    return FileSystem.readAsStringAsync(file.data.uri, { encoding: 'base64' });
+  if (file.data instanceof Blob) {
+    const buffer = await file.data.arrayBuffer();
+    return bytesToBase64(new Uint8Array(buffer));
   }
-  throw new Error('That file could not be read.');
+  throw new Error(
+    'That file could not be read here — pass the resume as base64 or a Blob.',
+  );
+}
+
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+/** Bytes to base64, without Buffer or btoa. */
+function bytesToBase64(bytes: Uint8Array): string {
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i] as number;
+    const b = bytes[i + 1];
+    const c = bytes[i + 2];
+    const value = (a << 16) | ((b ?? 0) << 8) | (c ?? 0);
+    out += B64[(value >> 18) & 63];
+    out += B64[(value >> 12) & 63];
+    out += b === undefined ? '=' : B64[(value >> 6) & 63];
+    out += c === undefined ? '=' : B64[value & 63];
+  }
+  return out;
 }

@@ -8,7 +8,7 @@ import {
   type HeraldBackend, type Match, type MatchStatus, type PreparedApplication,
   type Preferences, type Profile, type ReleaseIndex, type ResumeUpload, type TodayStats,
 } from '@herald/core';
-import { LocalBackend } from '../engine/local-backend';
+import { createBackend, readUpload } from '../engine/platform';
 import { getApiKey, setApiKey } from '../engine/settings';
 import { startDailyScan, stopDailyScan } from '../engine/schedule';
 import { appConfig } from '../lib/config';
@@ -133,7 +133,7 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
         return;
       }
       setMode('local');
-      setBackend(new LocalBackend());
+      setBackend(createBackend());
       setPhase((await isOnboarded()) ? 'ready' : 'onboarding');
     })();
     return () => { cancelled = true; };
@@ -216,7 +216,7 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
     await setApiKey(apiKey);
     setCredentials(null);
     setMode('local');
-    setBackend(new LocalBackend());
+    setBackend(createBackend());
     setPhase((await isOnboarded()) ? 'ready' : 'onboarding');
   }, []);
 
@@ -233,7 +233,7 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
     const apiKey = await getApiKey();
     if (apiKey) {
       setMode('local');
-      setBackend(new LocalBackend());
+      setBackend(createBackend());
       setPhase('ready');
       return;
     }
@@ -251,10 +251,14 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
 
   const uploadResume = useCallback(async (file: ResumeUpload): Promise<string[]> => {
     if (!backend) throw new Error(strings.errors.offline);
-    const result = await backend.uploadResume(file);
+    // A picked file arrives as a content:// URI, which only this side can
+    // resolve; the shared backend takes the bytes.
+    const result = await backend.uploadResume(
+      mode === 'local' ? await readUpload(file) : file,
+    );
     setProfile(result.profile);
     return result.warnings;
-  }, [backend]);
+  }, [backend, mode]);
 
   const updateProfile = useCallback(async (patch: Partial<Profile>) => {
     if (!backend) return;
