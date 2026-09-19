@@ -1,5 +1,7 @@
 import * as SQLite from 'expo-sqlite';
-import type { Match, Preferences, Profile, RawPosting } from '@herald/core';
+import type {
+  Match, Preferences, PreparedApplication, Profile, RawPosting, TodayStats,
+} from '@herald/core';
 import { randomId } from '@herald/core';
 
 /**
@@ -458,4 +460,76 @@ export async function lastCrawlAt(): Promise<Date | null> {
     'SELECT finished_at FROM crawl_runs WHERE finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1',
   );
   return row ? new Date(row.finished_at) : null;
+}
+
+// ── Prepared applications ───────────────────────────────────────────────────
+
+export async function getPreparedApplication(matchId: string): Promise<PreparedApplication | null> {
+  const db = await openDb();
+  const row = await db.getFirstAsync<{
+    fields: string; cover_letter: string | null; degraded: number;
+    manual_only: number; manual_reason: string | null; prepared_at: string;
+  }>('SELECT * FROM prepared_applications WHERE match_id = ?', matchId);
+  if (!row) return null;
+
+  return {
+    matchId,
+    fields: JSON.parse(row.fields) as PreparedApplication['fields'],
+    coverLetter: row.cover_letter,
+    degraded: row.degraded === 1,
+    manualOnly: row.manual_only === 1,
+    manualReason: row.manual_reason,
+    preparedAt: row.prepared_at,
+  };
+}
+
+export async function savePreparedApplication(prepared: PreparedApplication): Promise<void> {
+  const db = await openDb();
+  await db.runAsync(
+    `INSERT INTO prepared_applications
+       (match_id, fields, cover_letter, degraded, manual_only, manual_reason, prepared_at)
+     VALUES (?,?,?,?,?,?,?)
+     ON CONFLICT(match_id) DO UPDATE SET
+       fields = excluded.fields, cover_letter = excluded.cover_letter,
+       degraded = excluded.degraded, manual_only = excluded.manual_only,
+       manual_reason = excluded.manual_reason, prepared_at = excluded.prepared_at`,
+    prepared.matchId, JSON.stringify(prepared.fields), prepared.coverLetter,
+    prepared.degraded ? 1 : 0, prepared.manualOnly ? 1 : 0, prepared.manualReason,
+    prepared.preparedAt,
+  );
+}
+
+// ── Today ───────────────────────────────────────────────────────────────────
+
+/** The counts behind the Today screen. */
+export async function todayStats(): Promise<TodayStats> {
+  const db = await openDb();
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const since = midnight.toISOString();
+
+  const matched = await db.getFirstAsync<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM matches WHERE created_at >= ?', since,
+  );
+  const applied = await db.getFirstAsync<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM matches WHERE submitted_at >= ?', since,
+  );
+  const pending = await db.getFirstAsync<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM matches WHERE status = 'pending'",
+  );
+  const lastRun = await db.getFirstAsync<{ finished_at: string; seen: number }>(
+    'SELECT finished_at, seen FROM crawl_runs WHERE finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1',
+  );
+  const readToday = await db.getFirstAsync<{ n: number }>(
+    'SELECT COALESCE(SUM(seen), 0) AS n FROM crawl_runs WHERE started_at >= ?', since,
+  );
+
+  return {
+    read: readToday?.n ?? 0,
+    matched: matched?.n ?? 0,
+    applied: applied?.n ?? 0,
+    pending: pending?.n ?? 0,
+    lastCrawlAt: lastRun?.finished_at ?? null,
+    lastCrawlRead: lastRun?.seen ?? 0,
+  };
 }
