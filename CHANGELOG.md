@@ -11,6 +11,8 @@ is rejected by CI.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-09-19
+
 ### Changed
 - The ingest and matching pipeline — the source adapters, dedupe, prefilter and
   the posting hashes — moved from the engine into `@herald/core`, which is
