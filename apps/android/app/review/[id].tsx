@@ -20,7 +20,7 @@ import { useHerald } from '../../src/state/herald';
  */
 export default function Review() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { matchById, approve, submit } = useHerald();
+  const { matchById, approve, submit, mode } = useHerald();
   const insets = useSafeAreaInsets();
 
   const [prepared, setPrepared] = useState<PreparedApplication | null>(null);
@@ -78,6 +78,13 @@ export default function Review() {
       </View>
     );
   }
+
+  // Running on this device, Herald fills the real form in a web view and the
+  // user submits it there. Paired with an engine, the engine drives a browser
+  // and submits on their say-so. Either way nothing is sent from this screen.
+  const onContinue = (): void => {
+    router.push(`/apply/${id}`);
+  };
 
   const onSubmit = async () => {
     setSubmitting(true);
@@ -166,9 +173,11 @@ export default function Review() {
             fullWidth
             loading={submitting}
             disabled={missingRequired}
-            onPress={() => void onSubmit()}
+            onPress={() => (mode === 'local' ? onContinue() : void onSubmit())}
           >
-            {submitting ? strings.review.submitting : strings.review.submit}
+            {mode === 'local'
+              ? 'Open the form'
+              : submitting ? strings.review.submitting : strings.review.submit}
           </Button>
         )}
         <Button variant="ghost" fullWidth disabled={submitting} onPress={() => router.back()}>

@@ -1,11 +1,13 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { DEFAULT_PROMPTS, renderPrompt, type PromptName } from '@herald/core';
 
 /**
- * Prompt templates live on disk, not in code, so wording can be tuned without
- * rebuilding or redeploying the engine. `{{name}}` placeholders are filled from
- * the variables map; an unknown placeholder is an error rather than a silently
- * empty string, since a half-filled prompt produces confidently wrong scores.
+ * Prompt templates live on disk so wording can be tuned without rebuilding or
+ * redeploying the engine. When a file is absent the built-in default from
+ * @herald/core is used instead — which is the same text the Android app runs
+ * with, so a score computed there was asked the same question as one computed
+ * here. A file still wins, so tuning works as before.
  */
 export class PromptLibrary {
   private readonly cache = new Map<string, string>();
@@ -13,29 +15,23 @@ export class PromptLibrary {
   constructor(private readonly directory: string) {}
 
   render(name: string, variables: Record<string, string | number>): string {
-    const template = this.load(name);
-    const missing: string[] = [];
-    const rendered = template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
-      if (!(key in variables)) {
-        missing.push(key);
-        return '';
-      }
-      return String(variables[key]);
-    });
-    if (missing.length > 0) {
-      throw new Error(`Prompt "${name}" expects variables not provided: ${missing.join(', ')}`);
-    }
-    return rendered;
+    return renderPrompt(this.load(name), variables);
   }
 
   private load(name: string): string {
     const cached = this.cache.get(name);
     if (cached !== undefined) return cached;
+
     const path = resolve(this.directory, `${name}.md`);
-    if (!existsSync(path)) {
-      throw new Error(`Prompt template not found: ${path}`);
+    const contents = existsSync(path)
+      ? readFileSync(path, 'utf8')
+      : DEFAULT_PROMPTS[name as PromptName];
+
+    if (contents === undefined) {
+      throw new Error(
+        `Prompt template not found at ${path}, and "${name}" has no built-in default.`,
+      );
     }
-    const contents = readFileSync(path, 'utf8');
     this.cache.set(name, contents);
     return contents;
   }

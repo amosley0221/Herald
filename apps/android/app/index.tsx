@@ -15,7 +15,7 @@ export default function Index() {
       // Blank onyx rather than a spinner: this resolves from local storage in
       // a frame or two, and a flash of spinner would be noisier than nothing.
       return <View style={{ flex: 1, backgroundColor: color.onyx }} />;
-    case 'unpaired':
+    case 'setup':
       return <Redirect href="/setup" />;
     case 'onboarding':
       return <Redirect href="/onboarding" />;

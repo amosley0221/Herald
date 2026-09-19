@@ -13,13 +13,16 @@
     "update": "eas update --branch production"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
     "@herald/core": "*",
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~57.0.24",
     "expo-application": "~57.0.3",
+    "expo-background-task": "~57.0.19",
     "expo-build-properties": "~57.0.21",
     "expo-camera": "~57.0.5",
     "expo-constants": "~57.0.19",
+    "expo-crypto": "~57.0.3",
     "expo-document-picker": "~57.0.2",
     "expo-file-system": "~57.0.7",
     "expo-font": "~57.0.4",
@@ -29,8 +32,10 @@
     "expo-router": "~57.0.22",
     "expo-secure-store": "~57.0.4",
     "expo-splash-screen": "~57.0.9",
+    "expo-sqlite": "~57.0.3",
     "expo-status-bar": "~57.0.1",
     "expo-system-ui": "~57.0.4",
+    "expo-task-manager": "~57.0.19",
     "expo-updates": "~57.0.23",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -40,6 +45,7 @@
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
     "react-native-svg": "15.15.4",
+    "react-native-webview": "13.16.1",
     "react-native-worklets": "0.10.1"
   },
   "devDependencies": {

@@ -44,11 +44,16 @@ Notifications.setNotificationHandler({
 });
 
 /**
- * Registers channels and the action buttons, asks for permission, and returns
- * the device push token. Returns null when the user declines — the app keeps
- * working, matches just wait in the feed instead of arriving as a push.
+ * Registers channels and action buttons and asks for permission.
+ *
+ * Split out from `registerForPush` because a device doing its own scanning
+ * needs all of this and none of the token: it raises its own notifications, so
+ * there is no Firebase project to depend on.
+ *
+ * Returns false when the user declines — the app keeps working, matches just
+ * wait in the feed instead of announcing themselves.
  */
-export async function registerForPush(): Promise<string | null> {
+export async function prepareNotifications(): Promise<boolean> {
   if (Platform.OS === 'android') {
     await Promise.all([
       Notifications.setNotificationChannelAsync(CHANNELS.instant, {
@@ -89,7 +94,15 @@ export async function registerForPush(): Promise<string | null> {
   if (status !== 'granted') {
     status = (await Notifications.requestPermissionsAsync()).status;
   }
-  if (status !== 'granted') return null;
+  return status === 'granted';
+}
+
+/**
+ * The above, plus the device push token an engine needs to reach this phone.
+ * Returns null when permission was declined or no token could be obtained.
+ */
+export async function registerForPush(): Promise<string | null> {
+  if (!(await prepareNotifications())) return null;
 
   try {
     const { data } = await Notifications.getDevicePushTokenAsync();

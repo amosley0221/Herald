@@ -5,11 +5,14 @@ import {
 import { AppState } from 'react-native';
 import {
   HeraldClient, HeraldError, motion, strings,
-  type Match, type MatchStatus, type PreparedApplication, type Preferences,
-  type Profile, type ReleaseIndex, type ResumeUpload, type TodayStats,
+  type HeraldBackend, type Match, type MatchStatus, type PreparedApplication,
+  type Preferences, type Profile, type ReleaseIndex, type ResumeUpload, type TodayStats,
 } from '@herald/core';
+import { createBackend, readUpload } from '../engine/platform';
+import { getApiKey, setApiKey } from '../engine/settings';
+import { startDailyScan, stopDailyScan } from '../engine/schedule';
 import { appConfig } from '../lib/config';
-import { syncPushToken } from '../lib/notifications';
+import { prepareNotifications, syncPushToken } from '../lib/notifications';
 import {
   clearCredentials, isOnboarded, loadCredentials, saveCredentials, setOnboarded,
   type EngineCredentials,
@@ -18,13 +21,21 @@ import {
 /**
  * The app's single source of state.
  *
- * Herald is a thin client over one engine, so a context with explicit refresh
- * beats a query library here: there is one server, one user, and a handful of
- * collections. Mutations update local state optimistically and roll back with a
- * danger-tone toast if the engine disagrees, which is what the design asks for.
+ * There is one user and a handful of collections, so a context with explicit
+ * refresh beats a query library. Mutations update local state optimistically
+ * and roll back with a danger-tone toast if the backend disagrees, which is
+ * what the design asks for.
+ *
+ * The backend is either the device itself or a hosted engine, and nothing in
+ * here or in any screen depends on which: both satisfy HeraldBackend. Standalone
+ * is the default; pairing is for anyone who would rather their phone sat idle
+ * while something always-on did the scanning.
  */
 
-type Phase = 'loading' | 'unpaired' | 'onboarding' | 'ready';
+type Phase = 'loading' | 'setup' | 'onboarding' | 'ready';
+
+/** Where the work happens. `local` is this device; `paired` is a hosted engine. */
+export type BackendMode = 'local' | 'paired';
 
 interface ToastState {
   message: string;
@@ -33,7 +44,8 @@ interface ToastState {
 
 interface HeraldState {
   phase: Phase;
-  client: HeraldClient | null;
+  mode: BackendMode;
+  backend: HeraldBackend | null;
   credentials: EngineCredentials | null;
 
   profile: Profile | null;
@@ -46,7 +58,10 @@ interface HeraldState {
   error: string | null;
   toast: ToastState | null;
 
+  /** Pair with a hosted engine, which takes over from the device. */
   connect: (credentials: EngineCredentials) => Promise<void>;
+  /** Run on this device, with the given Anthropic key. */
+  useThisDevice: (apiKey: string) => Promise<void>;
   disconnect: () => Promise<void>;
   completeOnboarding: () => Promise<void>;
 
@@ -68,7 +83,8 @@ const HeraldContext = createContext<HeraldState | null>(null);
 export function HeraldProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<Phase>('loading');
   const [credentials, setCredentials] = useState<EngineCredentials | null>(null);
-  const [client, setClient] = useState<HeraldClient | null>(null);
+  const [mode, setMode] = useState<BackendMode>('local');
+  const [backend, setBackend] = useState<HeraldBackend | null>(null);
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [preferences, setPreferences] = useState<Preferences | null>(null);
@@ -96,14 +112,28 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      // A stored pairing wins: it was chosen deliberately, and the engine holds
+      // the data. Otherwise the device does the work itself, which needs an API
+      // key — and with neither, there is nothing to do but ask for one.
       const stored = await loadCredentials();
       if (cancelled) return;
-      if (!stored) {
-        setPhase('unpaired');
+
+      if (stored) {
+        setCredentials(stored);
+        setMode('paired');
+        setBackend(new HeraldClient({ baseUrl: stored.baseUrl, token: stored.token }));
+        setPhase((await isOnboarded()) ? 'ready' : 'onboarding');
         return;
       }
-      setCredentials(stored);
-      setClient(new HeraldClient({ baseUrl: stored.baseUrl, token: stored.token }));
+
+      const apiKey = await getApiKey();
+      if (cancelled) return;
+      if (!apiKey) {
+        setPhase('setup');
+        return;
+      }
+      setMode('local');
+      setBackend(createBackend());
       setPhase((await isOnboarded()) ? 'ready' : 'onboarding');
     })();
     return () => { cancelled = true; };
@@ -112,14 +142,14 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
   // ── Loading ──────────────────────────────────────────────────────────────
 
   const refresh = useCallback(async () => {
-    if (!client) return;
+    if (!backend) return;
     setRefreshing(true);
     try {
       // Fetched together so a slow release feed cannot delay the match list.
       const [matchList, todayStats, preferenceState] = await Promise.all([
-        client.listMatches({ limit: 200 }),
-        client.todayStats(),
-        client.getPreferences(),
+        backend.listMatches({ limit: 200 }),
+        backend.todayStats(),
+        backend.getPreferences(),
       ]);
       setMatches(matchList);
       setStats(todayStats);
@@ -128,8 +158,8 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
 
       // These two are allowed to fail quietly: a profile 404 is the expected
       // state before a resume is uploaded, and the release feed is optional.
-      void client.getProfile().then(setProfile).catch(() => undefined);
-      void client.releases().then(setReleases).catch(() => undefined);
+      void backend.getProfile().then(setProfile).catch(() => undefined);
+      void backend.releases().then(setReleases).catch(() => undefined);
     } catch (cause) {
       setError(cause instanceof HeraldError && cause.code === 'network'
         ? strings.errors.offline
@@ -137,15 +167,27 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
     } finally {
       setRefreshing(false);
     }
-  }, [client]);
+  }, [backend]);
 
   useEffect(() => {
-    if (!client) return;
+    if (!backend) return;
     void refresh();
-    // Registering the push token is best-effort; a device that declined
-    // notifications still uses the app normally.
-    void syncPushToken(client).catch(() => undefined);
-  }, [client, refresh]);
+    // Only a hosted engine can push to this device; running locally, the scan
+    // raises its own notification and has no token to register. Best-effort
+    // either way: a device that declined notifications still works normally.
+    if (backend instanceof HeraldClient) {
+      void syncPushToken(backend).catch(() => undefined);
+      // An engine is doing the scanning, so this device should not also wake up
+      // to do it — that would score the same postings twice and pay twice.
+      void stopDailyScan().catch(() => undefined);
+      return;
+    }
+
+    void (async () => {
+      await prepareNotifications().catch(() => false);
+      await startDailyScan().catch(() => false);
+    })();
+  }, [backend, refresh]);
 
   // Refresh when the app comes back to the foreground, so a match approved
   // from a notification is not shown as still pending.
@@ -165,19 +207,39 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
     await candidate.getPreferences();
     await saveCredentials(next);
     setCredentials(next);
-    setClient(candidate);
+    setMode('paired');
+    setBackend(candidate);
+    setPhase((await isOnboarded()) ? 'ready' : 'onboarding');
+  }, []);
+
+  const useThisDevice = useCallback(async (apiKey: string) => {
+    await setApiKey(apiKey);
+    setCredentials(null);
+    setMode('local');
+    setBackend(createBackend());
     setPhase((await isOnboarded()) ? 'ready' : 'onboarding');
   }, []);
 
   const disconnect = useCallback(async () => {
     await clearCredentials();
     setCredentials(null);
-    setClient(null);
     setProfile(null);
     setPreferences(null);
     setMatches([]);
     setStats(null);
-    setPhase('unpaired');
+
+    // Unpairing falls back to this device rather than stranding the user, as
+    // long as there is a key to work with.
+    const apiKey = await getApiKey();
+    if (apiKey) {
+      setMode('local');
+      setBackend(createBackend());
+      setPhase('ready');
+      return;
+    }
+    setMode('local');
+    setBackend(null);
+    setPhase('setup');
   }, []);
 
   const completeOnboarding = useCallback(async () => {
@@ -188,31 +250,35 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
   // ── Mutations ────────────────────────────────────────────────────────────
 
   const uploadResume = useCallback(async (file: ResumeUpload): Promise<string[]> => {
-    if (!client) throw new Error(strings.errors.offline);
-    const result = await client.uploadResume(file);
+    if (!backend) throw new Error(strings.errors.offline);
+    // A picked file arrives as a content:// URI, which only this side can
+    // resolve; the shared backend takes the bytes.
+    const result = await backend.uploadResume(
+      mode === 'local' ? await readUpload(file) : file,
+    );
     setProfile(result.profile);
     return result.warnings;
-  }, [client]);
+  }, [backend, mode]);
 
   const updateProfile = useCallback(async (patch: Partial<Profile>) => {
-    if (!client) return;
-    const updated = await client.updateProfile(patch);
+    if (!backend) return;
+    const updated = await backend.updateProfile(patch);
     setProfile(updated);
-  }, [client]);
+  }, [backend]);
 
   const updatePreferences = useCallback(async (patch: Partial<Preferences>) => {
-    if (!client || !preferences) return;
+    if (!backend || !preferences) return;
     const previous = preferences;
     // Optimistic: the threshold slider re-splits the feed as it moves, and
     // waiting for a round trip per tick would make it feel broken.
     setPreferences({ ...previous, ...patch });
     try {
-      setPreferences(await client.updatePreferences(patch));
+      setPreferences(await backend.updatePreferences(patch));
     } catch (cause) {
       setPreferences(previous);
       showToast(cause instanceof Error ? cause.message : strings.errors.generic, 'danger');
     }
-  }, [client, preferences, showToast]);
+  }, [backend, preferences, showToast]);
 
   const setStatusLocally = useCallback((matchId: string, status: MatchStatus) => {
     setMatches((current) => current.map((match) =>
@@ -220,28 +286,28 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const approve = useCallback(async (matchId: string): Promise<PreparedApplication> => {
-    if (!client) throw new Error(strings.errors.offline);
+    if (!backend) throw new Error(strings.errors.offline);
     const previous = matches.find((m) => m.id === matchId)?.status ?? 'pending';
     setStatusLocally(matchId, 'approved');
     try {
-      return await client.approve(matchId);
+      return await backend.approve(matchId);
     } catch (cause) {
       setStatusLocally(matchId, previous);
       throw cause;
     }
-  }, [client, matches, setStatusLocally]);
+  }, [backend, matches, setStatusLocally]);
 
   const submit = useCallback(async (
     matchId: string, fields?: Record<string, string>, coverLetter?: string,
   ) => {
-    if (!client) throw new Error(strings.errors.offline);
+    if (!backend) throw new Error(strings.errors.offline);
     const match = matches.find((m) => m.id === matchId);
     const company = match?.posting.company ?? '';
     const previous = match?.status ?? 'approved';
 
     setStatusLocally(matchId, 'applied');
     try {
-      const updated = await client.submit(matchId, fields, coverLetter);
+      const updated = await backend.submit(matchId, fields, coverLetter);
       setMatches((current) => current.map((m) => (m.id === matchId ? updated : m)));
       // The engine reports `needs_you` when it hit a CAPTCHA or login wall, so
       // a 200 does not always mean the application went in.
@@ -261,22 +327,22 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
       );
       throw cause;
     }
-  }, [client, matches, refresh, setStatusLocally, showToast]);
+  }, [backend, matches, refresh, setStatusLocally, showToast]);
 
   const skip = useCallback(async (matchId: string) => {
-    if (!client) throw new Error(strings.errors.offline);
+    if (!backend) throw new Error(strings.errors.offline);
     const match = matches.find((m) => m.id === matchId);
     const previous = match?.status ?? 'pending';
     setStatusLocally(matchId, 'skipped');
     showToast(strings.toast.skipped(match?.posting.company ?? ''));
     try {
-      const updated = await client.skip(matchId);
+      const updated = await backend.skip(matchId);
       setMatches((current) => current.map((m) => (m.id === matchId ? updated : m)));
     } catch (cause) {
       setStatusLocally(matchId, previous);
       showToast(strings.errors.generic, 'danger');
     }
-  }, [client, matches, setStatusLocally, showToast]);
+  }, [backend, matches, setStatusLocally, showToast]);
 
   const matchById = useCallback(
     (id: string) => matches.find((match) => match.id === id),
@@ -284,16 +350,16 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<HeraldState>(() => ({
-    phase, client, credentials,
+    phase, mode, backend, credentials,
     profile, preferences, matches, stats, releases,
     refreshing, error, toast,
-    connect, disconnect, completeOnboarding,
+    connect, useThisDevice, disconnect, completeOnboarding,
     refresh, uploadResume, updateProfile, updatePreferences,
     approve, submit, skip,
     showToast, matchById,
   }), [
-    phase, client, credentials, profile, preferences, matches, stats, releases,
-    refreshing, error, toast, connect, disconnect, completeOnboarding, refresh,
+    phase, mode, backend, credentials, profile, preferences, matches, stats, releases,
+    refreshing, error, toast, connect, useThisDevice, disconnect, completeOnboarding, refresh,
     uploadResume, updateProfile, updatePreferences, approve, submit, skip,
     showToast, matchById,
   ]);

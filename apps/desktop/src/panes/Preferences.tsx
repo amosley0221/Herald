@@ -11,7 +11,10 @@ import { useHerald } from '../state';
  * be a second thing to forget.
  */
 export function PreferencesPane() {
-  const { preferences, profile, updatePreferences, updateProfile, uploadResume, showToast, disconnect, setView } = useHerald();
+  const {
+    preferences, profile, mode, pairing, updatePreferences, updateProfile, uploadResume,
+    showToast, disconnect, setView, startSharing, stopSharing,
+  } = useHerald();
   const [newRole, setNewRole] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -188,6 +191,49 @@ export function PreferencesPane() {
             placeholder="Two weeks"
             onSave={(next) => void updateProfile({ availability: next })}
           />
+        </Section>
+      ) : null}
+
+      {mode === 'local' ? (
+        <Section label="Share with your phone">
+          <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
+            {pairing
+              ? `Herald is answering on port ${pairing.port}. On your phone, choose "Connect to an engine instead" and enter this machine\u2019s address on your network, with the token below.`
+              : 'Let the Herald app on your phone use this machine\u2019s engine, so both show the same matches. Both devices need to be on the same network.'}
+          </p>
+
+          {pairing ? (
+            <>
+              <div className="stack stack--tight">
+                <Label>Token</Label>
+                <input
+                  className="field"
+                  readOnly
+                  value={pairing.token}
+                  aria-label="Pairing token"
+                  onFocus={(event) => event.currentTarget.select()}
+                />
+              </div>
+              <div className="row-actions">
+                <Button variant="ghost" onClick={() => void stopSharing()}>Stop sharing</Button>
+              </div>
+            </>
+          ) : (
+            <div className="row-actions">
+              <Button
+                variant="outline"
+                onClick={() => void (async () => {
+                  try {
+                    await startSharing();
+                  } catch (cause) {
+                    showToast(cause instanceof Error ? cause.message : strings.errors.generic, 'danger');
+                  }
+                })()}
+              >
+                Start sharing
+              </Button>
+            </div>
+          )}
         </Section>
       ) : null}
 

@@ -52,6 +52,12 @@ function main(): void {
 
   const sources = (config.sources as unknown[] | undefined) ?? [];
 
+  // The pairing QR carries this verbatim, so a phone that scans one built from
+  // the example's placeholder just fails to connect, with nothing to explain
+  // why. Worth saying plainly rather than leaving it to be discovered.
+  const publicUrl = (config.server as { publicUrl?: string | null } | undefined)?.publicUrl ?? null;
+  const publicUrlNeedsSetting = publicUrl === null || publicUrl.includes('example.com');
+
   console.log(`
 Herald engine is configured.
 
@@ -69,9 +75,16 @@ Still to do:
      you want watched. The "json" and "command" adapters cover anything the
      named adapters do not.
 
-  3. Start the engine:  npm run start -w @herald/engine
+  3. ${publicUrlNeedsSetting
+        ? `Set "server.publicUrl" to the address your PHONE can reach, e.g.
+     http://192.168.1.50:8787 on your home network, or an https:// address
+     if the engine is on a VPS. It is currently ${publicUrl ?? 'unset'}, which
+     the phone cannot resolve — the pairing QR code carries this value.`
+        : `"server.publicUrl" is ${publicUrl}. Make sure your phone can reach it.`}
 
-  4. Open the desktop app, paste the token above, and upload your resume.
+  4. Start the engine:  npm run start -w @herald/engine
+
+  5. Open the desktop app, paste the token above, and upload your resume.
      The phone pairs by scanning the QR code the desktop app shows.
 
 Keep the token secret: it is the only thing standing between the internet and

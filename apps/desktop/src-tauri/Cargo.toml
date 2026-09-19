@@ -23,6 +23,18 @@ serde_json = "1"
 # The updater is desktop-only; on mobile Tauri has no installer to swap.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
+# The engine runs in the webview, which cannot reach a job board directly --
+# no ATS sends CORS headers -- so outbound HTTP goes through the native side.
+tauri-plugin-http = "2"
+# Matches, postings and the score cache, in the same shape the engine keeps.
+tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+# Settings and the API key.
+tauri-plugin-store = "2"
+# Serving this machine's engine to a phone on the same network. The handler
+# forwards to the webview rather than answering itself, so there is only ever
+# one implementation of what a match is.
+axum = "0.8"
+tokio = { version = "1", features = ["time", "net", "sync", "rt"] }
 
 [features]
 # Used by `tauri build --debug` to keep devtools available in a release build.

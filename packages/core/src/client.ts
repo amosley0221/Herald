@@ -1,3 +1,4 @@
+import type { HeraldBackend } from './backend.js';
 import type {
   ApplicationLogEntry,
   DeviceRegistration,
@@ -47,7 +48,7 @@ export interface ResumeUpload {
   data: Blob | ArrayBuffer | { uri: string };
 }
 
-export class HeraldClient {
+export class HeraldClient implements HeraldBackend {
   private readonly baseUrl: string;
   private token: string;
   private readonly timeoutMs: number;

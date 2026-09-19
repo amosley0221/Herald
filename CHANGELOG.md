@@ -11,6 +11,42 @@ is rejected by CI.
 
 ## [Unreleased]
 
+### Changed
+- The ingest and matching pipeline — the source adapters, dedupe, prefilter and
+  the posting hashes — moved from the engine into `@herald/core`, which is
+  plain TypeScript that runs in React Native. The engine's own modules are now
+  re-exports, so there is one implementation of what counts as a duplicate and
+  what survives the prefilter rather than two that drift. Groundwork for
+  running Herald on the phone alone, with no engine to host.
+
+### Added
+- The desktop app works on its own, and can share what it has with a phone.
+  It runs the same engine, with SQLite through Tauri and outbound HTTP through
+  the native stack — a webview cannot read a job board itself, since no ATS
+  sends CORS headers. Sharing is a small server in Rust that forwards each
+  request to the webview, which answers with the same backend the desktop
+  window uses, so a paired phone sees a Herald engine and there is still one
+  implementation of what a match is. Replicating between two databases would
+  instead have meant deciding what happens when both devices approve the same
+  match offline.
+- The scan runs on the phone. Ingest, dedupe, prefilter, score and store, with
+  no engine behind it: the same pipeline code, the same prompts and the same
+  posting hashes, so a match found on the phone means what a match found on the
+  engine means. Sources, models and the score floor are all editable in the app,
+  so watching a new company needs no new build.
+- Prompt templates are embedded in `@herald/core`. The engine still prefers a
+  file under `config/prompts/`, so wording remains tunable without a rebuild,
+  and falls back to the embedded copy — which is what the phone runs, verified
+  byte-identical to the files.
+- `base64ToUtf8` and `parseModelJson` in `@herald/core`. React Native has no
+  `Buffer` and its `atob` is Latin-1 only, so a resume with an accent in it
+  decoded to mojibake.
+- A portable SHA-256 in `@herald/core`. `node:crypto` does not exist in React
+  Native and `expo-crypto`'s digest is asynchronous, which would make
+  `dedupeKey` async and infect every caller. Pinned by tests to `node:crypto`
+  across the message-padding boundaries and multi-byte input, so a posting
+  hashes the same on a phone as on a server.
+
 ### Fixed
 - The APK failed to sign, after a full eleven-minute build, with
   `BadPaddingException` — which names neither the secret at fault nor the fact
