@@ -18,7 +18,7 @@ import { useHerald } from '../../src/state/herald';
  * nothing here that is only valid as a set.
  */
 export default function Preferences() {
-  const { preferences, profile, updatePreferences, disconnect } = useHerald();
+  const { preferences, profile, mode, updatePreferences, disconnect } = useHerald();
   const insets = useSafeAreaInsets();
   const [newRole, setNewRole] = useState('');
 
@@ -188,15 +188,45 @@ export default function Preferences() {
       </Pressable>
       <Hairline />
 
-      <View style={{ padding: space[3], gap: space[2] }}>
-        <BodyText size={13} tone={color.stone} style={{ lineHeight: 21 }}>
-          Sources are configured on the engine. Herald reads every board listed
-          there once an hour.
-        </BodyText>
-        <Button variant="ghost" onPress={() => void disconnect()}>
-          {strings.preferences.signOut}
-        </Button>
-      </View>
+      {mode === 'local' ? (
+        <>
+          <Pressable
+            onPress={() => router.push('/sources')}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.linkRow, pressed && { backgroundColor: color.graphite }]}
+          >
+            <BodyText size={15} style={{ flex: 1 }}>Job sources</BodyText>
+            <Label>Edit</Label>
+          </Pressable>
+          <Hairline />
+          <Pressable
+            onPress={() => router.push('/engine-settings')}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.linkRow, pressed && { backgroundColor: color.graphite }]}
+          >
+            <BodyText size={15} style={{ flex: 1 }}>Key and models</BodyText>
+            <Label>Edit</Label>
+          </Pressable>
+          <Hairline />
+          <View style={{ padding: space[3], gap: space[2] }}>
+            <BodyText size={13} tone={color.stone} style={{ lineHeight: 21 }}>
+              Herald is scanning on this phone. It runs when the phone is awake
+              and charged; nothing leaves the device except the postings it
+              scores.
+            </BodyText>
+          </View>
+        </>
+      ) : (
+        <View style={{ padding: space[3], gap: space[2] }}>
+          <BodyText size={13} tone={color.stone} style={{ lineHeight: 21 }}>
+            Sources are configured on the engine. Herald reads every board listed
+            there once an hour.
+          </BodyText>
+          <Button variant="ghost" onPress={() => void disconnect()}>
+            {strings.preferences.signOut}
+          </Button>
+        </View>
+      )}
     </ScrollView>
   );
 }
