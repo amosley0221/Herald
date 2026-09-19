@@ -215,6 +215,14 @@ Before the first tag, four things have to be true:
    base64 -w0 herald.keystore    # paste into ANDROID_KEYSTORE_BASE64
    ```
 
+   **Set `ANDROID_KEY_PASSWORD` to the same value as
+   `ANDROID_KEYSTORE_PASSWORD`.** Since JDK 9 `keytool` writes PKCS12
+   keystores, and the key inside one is encrypted with the store password —
+   there is no separate key password to choose, and the prompt asking for one
+   is gone. The release workflow checks this before it builds and falls back to
+   the store password if the two differ, so a mismatch is a notice rather than
+   a failure.
+
    **Losing this key is unrecoverable.** Android refuses to install a build
    signed with a different key over an existing one, so a lost keystore means
    uninstalling and reinstalling by hand — the exact thing Herald exists to

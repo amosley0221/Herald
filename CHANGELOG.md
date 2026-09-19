@@ -12,6 +12,15 @@ is rejected by CI.
 ## [Unreleased]
 
 ### Fixed
+- The APK failed to sign, after a full eleven-minute build, with
+  `BadPaddingException` — which names neither the secret at fault nor the fact
+  that signing was what failed. `keytool` has written PKCS12 keystores since
+  JDK 9, and the key inside one is encrypted with the store password, so the
+  separate `ANDROID_KEY_PASSWORD` the README asked for does not exist and
+  cannot unlock it. The release workflow now verifies the signing credentials
+  in a second, before compiling anything, says which secret is wrong when one
+  is, and uses the store password when that is what opens the key. The README
+  no longer asks for a password `keytool` does not create.
 - The Android build failed `CheckAarMetadata`: a dependency in the Expo SDK
   requires compiling against API 36, and the app pinned `compileSdkVersion` to
   35. The pin is removed rather than raised — Expo's own default is consistent

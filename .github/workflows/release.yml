@@ -167,12 +167,56 @@ jobs:
         id: keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
           if [ -z "$KEYSTORE_BASE64" ]; then
             echo "::error::ANDROID_KEYSTORE_BASE64 is not set. Generate a keystore and add it as a repository secret, or the APK cannot be signed. See README → Cutting a release."
             exit 1
           fi
-          echo "$KEYSTORE_BASE64" | base64 -d > apps/android/android/app/herald.keystore
+
+          KEYSTORE=apps/android/android/app/herald.keystore
+          echo "$KEYSTORE_BASE64" | base64 -d > "$KEYSTORE"
+
+          # Check the credentials now rather than letting Gradle discover them
+          # in PackageAndroidArtifact, which is the last thing a release build
+          # does: a wrong password used to cost eleven minutes of compilation
+          # and then report `BadPaddingException`, which names no secret.
+          export KEYSTORE_PATH="$KEYSTORE"
+
+          if ! "$JAVA_HOME/bin/keytool" -list -keystore "$KEYSTORE" \
+               -storepass "$STORE_PASSWORD" > /dev/null 2>&1; then
+            echo "::error::ANDROID_KEYSTORE_PASSWORD does not open the keystore. Check the secret against the password used to create herald.keystore."
+            exit 1
+          fi
+
+          if ! "$JAVA_HOME/bin/keytool" -list -keystore "$KEYSTORE" \
+               -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" > /dev/null 2>&1; then
+            echo "::error::The keystore has no key named by ANDROID_KEY_ALIAS. The aliases it does have are listed below."
+            "$JAVA_HOME/bin/keytool" -list -keystore "$KEYSTORE" -storepass "$STORE_PASSWORD" \
+              | grep -i 'PrivateKeyEntry' || true
+            exit 1
+          fi
+
+          probe() { KEY_PASSWORD="$1" java apps/android/tools/ProbeSigningKey.java > /dev/null 2>&1; }
+
+          if probe "$KEY_PASSWORD"; then
+            echo "key_password_source=key" >> "$GITHUB_OUTPUT"
+            echo "Signing credentials verified."
+          elif probe "$STORE_PASSWORD"; then
+            # keytool has created PKCS12 keystores by default since JDK 9, and a
+            # PKCS12 key made by `keytool -genkeypair` is encrypted with the
+            # store password — there is no separate key password to set. A
+            # differing ANDROID_KEY_PASSWORD is therefore expected, not an error.
+            echo "key_password_source=store" >> "$GITHUB_OUTPUT"
+            echo "::notice::ANDROID_KEY_PASSWORD does not unlock the signing key, but ANDROID_KEYSTORE_PASSWORD does. This keystore is PKCS12, where the key is encrypted with the store password, so that is what will be used. Setting ANDROID_KEY_PASSWORD to the same value as ANDROID_KEYSTORE_PASSWORD will silence this."
+          else
+            echo "::error::Neither ANDROID_KEY_PASSWORD nor ANDROID_KEYSTORE_PASSWORD unlocks the key. One of the three signing secrets is wrong; the keystore itself opened, so ANDROID_KEYSTORE_PASSWORD is right and the alias exists. See README → Cutting a release."
+            exit 1
+          fi
+
           echo "present=true" >> "$GITHUB_OUTPUT"
 
       - name: Build the APK
@@ -181,7 +225,14 @@ jobs:
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_PASSWORD_SOURCE: ${{ steps.keystore.outputs.key_password_source }}
         run: |
+          # Which password unlocks the key was settled by the keystore step, so
+          # only its verdict crosses between steps here, never a password.
+          if [ "$KEY_PASSWORD_SOURCE" = "store" ]; then
+            KEY_PASSWORD="$STORE_PASSWORD"
+          fi
+
           # Gradle writes to a file, which is streamed from there, rather than
           # down the step's stdout pipe.
           #
