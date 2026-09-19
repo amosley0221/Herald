@@ -115,16 +115,6 @@ const config: ExpoConfig = {
       },
     ],
     [
-      'expo-build-properties',
-      {
-        android: {
-          // Required for the installer intent on Android 14+.
-          compileSdkVersion: 35,
-          targetSdkVersion: 35,
-        },
-      },
-    ],
-    [
       'expo-camera',
       {
         cameraPermission: 'Herald uses the camera once, to scan the pairing code shown by the desktop app.',
