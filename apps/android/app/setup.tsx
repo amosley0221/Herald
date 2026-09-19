@@ -10,17 +10,19 @@ import { appConfig } from '../src/lib/config';
 import { useHerald } from '../src/state/herald';
 
 /**
- * Pairing.
+ * First run.
  *
- * The desktop app shows a QR code carrying the engine address and token; this
- * screen scans it. Typing both by hand is offered as the fallback for anyone
- * running the engine without a desktop app in front of them.
+ * Two ways to start, and the order matters: running on the phone is the
+ * default because it needs nothing but a key, and pairing is offered second
+ * for anyone who would rather their phone sat idle while something always-on
+ * did the scanning. Either way the screens after this are identical.
  */
 export default function Setup() {
-  const { connect } = useHerald();
+  const { connect, useThisDevice } = useHerald();
   const insets = useSafeAreaInsets();
 
-  const [mode, setMode] = useState<'choose' | 'scan' | 'manual'>('choose');
+  const [mode, setMode] = useState<'choose' | 'scan' | 'manual' | 'engine'>('choose');
+  const [apiKey, setApiKeyInput] = useState('');
   const [baseUrl, setBaseUrl] = useState(appConfig.defaultEngineUrl ?? '');
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
@@ -69,7 +71,7 @@ export default function Setup() {
           <BodyText size={13} tone={color.bone} style={{ textAlign: 'center' }}>
             {strings.setup.pairingBody}
           </BodyText>
-          <Button variant="ghost" onPress={() => setMode('choose')}>Cancel</Button>
+          <Button variant="ghost" onPress={() => setMode('engine')}>Cancel</Button>
         </View>
       </View>
     );
@@ -86,7 +88,46 @@ export default function Setup() {
       <BodyText size={16} style={{ lineHeight: 26 }}>{strings.setup.body}</BodyText>
 
       {mode === 'choose' ? (
+        <View style={{ gap: space[3], marginTop: space[2] }}>
+          <BodyText size={14} tone={color.stone} style={{ lineHeight: 22 }}>
+            {strings.setup.onDeviceBody}
+          </BodyText>
+          <Field
+            label={strings.setup.apiKey}
+            value={apiKey}
+            onChange={setApiKeyInput}
+            placeholder="sk-ant-..."
+            secure
+          />
+          <BodyText size={12} tone={color.stone}>{strings.setup.apiKeyHint}</BodyText>
+          <Button
+            fullWidth
+            loading={busy}
+            disabled={!apiKey.trim()}
+            onPress={async () => {
+              setBusy(true);
+              setError(null);
+              try {
+                await useThisDevice(apiKey);
+                router.replace('/');
+              } catch (cause) {
+                setError(cause instanceof Error ? cause.message : strings.errors.generic);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {strings.setup.start}
+          </Button>
+          <Button variant="ghost" fullWidth onPress={() => setMode('engine')}>
+            {strings.setup.useEngine}
+          </Button>
+        </View>
+      ) : mode === 'engine' ? (
         <View style={{ gap: space[2], marginTop: space[2] }}>
+          <BodyText size={14} tone={color.stone} style={{ lineHeight: 22 }}>
+            {strings.setup.engineBody}
+          </BodyText>
           <Button
             fullWidth
             loading={busy}
@@ -106,6 +147,9 @@ export default function Setup() {
           </Button>
           <Button variant="ghost" fullWidth onPress={() => setMode('manual')}>
             {strings.setup.manual}
+          </Button>
+          <Button variant="ghost" fullWidth onPress={() => setMode('choose')}>
+            {strings.setup.back}
           </Button>
         </View>
       ) : (
@@ -132,7 +176,7 @@ export default function Setup() {
           >
             {strings.setup.connect}
           </Button>
-          <Button variant="ghost" fullWidth onPress={() => setMode('choose')}>
+          <Button variant="ghost" fullWidth onPress={() => setMode('engine')}>
             {strings.setup.scan}
           </Button>
         </View>
