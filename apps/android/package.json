@@ -13,6 +13,7 @@
     "update": "eas update --branch production"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
     "@herald/core": "*",
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~57.0.24",

@@ -10,7 +10,9 @@ export * from './version.js';
 // Portable ingest and matching pipeline. These run unchanged on the engine and
 // on the phone, so there is one implementation of what counts as a duplicate
 // and what survives the prefilter, not two that drift.
+export * from './base64.js';
 export * from './hash.js';
+export * from './prompts.js';
 export * from './sources/types.js';
 export { greenhouseAdapter } from './sources/greenhouse.js';
 export { leverAdapter } from './sources/lever.js';
