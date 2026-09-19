@@ -11,6 +11,7 @@ export * from './version.js';
 // on the phone, so there is one implementation of what counts as a duplicate
 // and what survives the prefilter, not two that drift.
 export * from './apply.js';
+export * from './webform.js';
 export * from './base64.js';
 export * from './hash.js';
 export * from './prompts.js';
