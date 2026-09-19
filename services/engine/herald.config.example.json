@@ -53,7 +53,7 @@
   },
 
   "releases": {
-    "indexUrl": "https://amosley0221.github.io/herald/releases/index.json"
+    "indexUrl": "https://raw.githubusercontent.com/amosley0221/Herald/main/releases/index.json"
   },
 
   "sources": [
