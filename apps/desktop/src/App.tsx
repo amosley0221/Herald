@@ -32,7 +32,7 @@ export function App() {
   const { phase, view, toast } = useHerald();
 
   if (phase === 'loading') return <div style={{ height: '100%', background: 'var(--cp-onyx)' }} />;
-  if (phase === 'unpaired') {
+  if (phase === 'setup') {
     return (
       <>
         <Setup />

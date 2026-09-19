@@ -13,7 +13,9 @@ import { useHerald } from '../state';
  * for the phone's camera. That is the only time the token is ever displayed.
  */
 export function Setup() {
-  const { connect } = useHerald();
+  const { connect, useThisMachine } = useHerald();
+  const [tab, setTab] = useState<'device' | 'engine'>('device');
+  const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('http://127.0.0.1:8787');
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
@@ -41,10 +43,70 @@ export function Setup() {
       </div>
 
       <p style={{ fontSize: 16, lineHeight: 1.6, margin: 0 }}>
-        Point Herald at your engine. The token is the one `npm run init` printed
-        when you set the engine up.
+        {strings.setup.body}
       </p>
 
+      <div className="row-actions">
+        <Button
+          type="button"
+          variant={tab === 'device' ? 'solid' : 'ghost'}
+          onClick={() => setTab('device')}
+        >
+          {strings.setup.onDevice}
+        </Button>
+        <Button
+          type="button"
+          variant={tab === 'engine' ? 'solid' : 'ghost'}
+          onClick={() => setTab('engine')}
+        >
+          {strings.setup.useEngine}
+        </Button>
+      </div>
+
+      {tab === 'device' ? (
+        <>
+          <p className="muted" style={{ fontSize: 14, lineHeight: 1.6, margin: 0 }}>
+            {strings.setup.onDeviceBody}
+          </p>
+          <div className="stack stack--tight">
+            <Label>{strings.setup.apiKey}</Label>
+            <input
+              className="field"
+              type="password"
+              value={apiKey}
+              aria-label={strings.setup.apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              placeholder="sk-ant-..."
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+              {strings.setup.apiKeyHint}
+            </p>
+          </div>
+          <div className="row-actions">
+            <Button
+              type="button"
+              disabled={busy || !apiKey.trim()}
+              onClick={() => void (async () => {
+                setBusy(true);
+                setError(null);
+                try {
+                  await useThisMachine(apiKey);
+                } catch (cause) {
+                  setError(cause instanceof Error ? cause.message : strings.errors.generic);
+                } finally {
+                  setBusy(false);
+                }
+              })()}
+            >
+              {strings.setup.start}
+            </Button>
+          </div>
+          {error ? <p className="danger" style={{ fontSize: 13, margin: 0 }}>{error}</p> : null}
+        </>
+      ) : (
+        <>
       <div className="stack stack--tight">
         <Label>{strings.setup.baseUrl}</Label>
         <input
@@ -79,6 +141,8 @@ export function Setup() {
       </div>
 
       {error ? <p className="danger" style={{ fontSize: 13, margin: 0 }}>{error}</p> : null}
+        </>
+      )}
     </form>
   );
 }

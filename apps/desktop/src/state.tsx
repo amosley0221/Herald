@@ -4,9 +4,11 @@ import {
 } from 'react';
 import {
   HeraldClient, HeraldError, motion, strings,
+  type HeraldBackend,
   type Match, type MatchStatus, type PreparedApplication, type Preferences,
   type Profile, type ReleaseIndex, type ResumeUpload, type TodayStats,
 } from '@herald/core';
+import { createBackend, settings as engineSettings, setApiKey } from './engine/platform';
 import {
   clearCredentials, loadCredentials, saveCredentials, type EngineCredentials,
 } from './lib/storage';
@@ -20,7 +22,10 @@ import {
  */
 
 export type View = 'today' | 'matches' | 'tracker' | 'preferences' | 'releases';
-export type Phase = 'loading' | 'unpaired' | 'ready';
+export type Phase = 'loading' | 'setup' | 'ready';
+
+/** Where the work happens. `local` is this machine; `paired` is a hosted engine. */
+export type BackendMode = 'local' | 'paired';
 
 interface ToastState {
   message: string;
@@ -29,7 +34,8 @@ interface ToastState {
 
 interface HeraldState {
   phase: Phase;
-  client: HeraldClient | null;
+  mode: BackendMode;
+  backend: HeraldBackend | null;
   credentials: EngineCredentials | null;
 
   view: View;
@@ -52,6 +58,8 @@ interface HeraldState {
   toast: ToastState | null;
 
   connect: (credentials: EngineCredentials) => Promise<void>;
+  /** Run on this machine, with the given Anthropic key. */
+  useThisMachine: (apiKey: string) => Promise<void>;
   disconnect: () => void;
   refresh: () => Promise<void>;
   runCrawl: () => Promise<void>;
@@ -73,7 +81,8 @@ const HeraldContext = createContext<HeraldState | null>(null);
 export function HeraldProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<Phase>('loading');
   const [credentials, setCredentials] = useState<EngineCredentials | null>(null);
-  const [client, setClient] = useState<HeraldClient | null>(null);
+  const [mode, setMode] = useState<BackendMode>('local');
+  const [backend, setBackend] = useState<HeraldBackend | null>(null);
 
   const [view, setView] = useState<View>('today');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -107,25 +116,49 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
     setReviewing(false);
   }, []);
 
+  // A stored pairing wins, because choosing one was deliberate and the engine
+  // holds the data. Otherwise this machine does the work, which needs a key.
   useEffect(() => {
-    const stored = loadCredentials();
-    if (!stored) {
-      setPhase('unpaired');
-      return;
-    }
-    setCredentials(stored);
-    setClient(new HeraldClient({ baseUrl: stored.baseUrl, token: stored.token }));
+    let cancelled = false;
+    void (async () => {
+      const stored = loadCredentials();
+      if (stored) {
+        setCredentials(stored);
+        setMode('paired');
+        setBackend(new HeraldClient({ baseUrl: stored.baseUrl, token: stored.token }));
+        setPhase('ready');
+        return;
+      }
+
+      const apiKey = await engineSettings.getApiKey();
+      if (cancelled) return;
+      if (!apiKey) {
+        setPhase('setup');
+        return;
+      }
+      setMode('local');
+      setBackend(createBackend());
+      setPhase('ready');
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const useThisMachine = useCallback(async (apiKey: string) => {
+    await setApiKey(apiKey);
+    setCredentials(null);
+    setMode('local');
+    setBackend(createBackend());
     setPhase('ready');
   }, []);
 
   const refresh = useCallback(async () => {
-    if (!client) return;
+    if (!backend) return;
     setRefreshing(true);
     try {
       const [matchList, todayStats, preferenceState] = await Promise.all([
-        client.listMatches({ limit: 200 }),
-        client.todayStats(),
-        client.getPreferences(),
+        backend.listMatches({ limit: 200 }),
+        backend.todayStats(),
+        backend.getPreferences(),
       ]);
       setMatches(matchList);
       setStats(todayStats);
@@ -133,8 +166,8 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
       setError(null);
       // Expected to 404 before a resume is uploaded, and the release feed is
       // optional, so neither failure is worth surfacing.
-      void client.getProfile().then(setProfile).catch(() => undefined);
-      void client.releases().then(setReleases).catch(() => undefined);
+      void backend.getProfile().then(setProfile).catch(() => undefined);
+      void backend.releases().then(setReleases).catch(() => undefined);
     } catch (cause) {
       setError(cause instanceof HeraldError && cause.code === 'network'
         ? strings.errors.offline
@@ -142,16 +175,16 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
     } finally {
       setRefreshing(false);
     }
-  }, [client]);
+  }, [backend]);
 
   useEffect(() => {
-    if (!client) return;
+    if (!backend) return;
     void refresh();
     // The engine crawls hourly; polling every two minutes keeps an app left
     // open on a second monitor roughly current without hammering it.
     const timer = setInterval(() => { void refresh(); }, 120_000);
     return () => clearInterval(timer);
-  }, [client, refresh]);
+  }, [backend, refresh]);
 
   const connect = useCallback(async (next: EngineCredentials) => {
     const candidate = new HeraldClient({ baseUrl: next.baseUrl, token: next.token });
@@ -159,56 +192,68 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
     await candidate.getPreferences();
     saveCredentials(next);
     setCredentials(next);
-    setClient(candidate);
+    setBackend(candidate);
     setPhase('ready');
   }, []);
 
-  const disconnect = useCallback(() => {
+  const disconnect = useCallback(async () => {
     clearCredentials();
     setCredentials(null);
-    setClient(null);
+    setBackend(null);
     setProfile(null);
     setPreferences(null);
     setMatches([]);
     setStats(null);
     setSelectedId(null);
-    setPhase('unpaired');
+
+    // Unpairing falls back to this machine rather than stranding the user, as
+    // long as there is a key to work with.
+    const apiKey = await engineSettings.getApiKey();
+    if (apiKey) {
+      setMode('local');
+      setBackend(createBackend());
+      setPhase('ready');
+      return;
+    }
+    setMode('local');
+    setBackend(null);
+    setPhase('setup');
   }, []);
 
   const runCrawl = useCallback(async () => {
-    if (!client) return;
+    if (!backend) return;
     try {
-      await client.runCrawl();
+      await backend.runCrawl();
       showToast('Crawl started');
     } catch (cause) {
       showToast(cause instanceof Error ? cause.message : strings.errors.generic, 'danger');
     }
-  }, [client, showToast]);
+  }, [backend, showToast]);
 
   const uploadResume = useCallback(async (file: ResumeUpload): Promise<string[]> => {
-    if (!client) throw new Error(strings.errors.offline);
-    const result = await client.uploadResume(file);
+    if (!backend) throw new Error(strings.errors.offline);
+    const result = await backend.uploadResume(file);
     setProfile(result.profile);
     return result.warnings;
-  }, [client]);
+  }, [backend]);
 
   const updateProfile = useCallback(async (patch: Partial<Profile>) => {
-    if (!client) return;
-    setProfile(await client.updateProfile(patch));
-  }, [client]);
+    if (!backend) return;
+    setProfile(await backend.updateProfile(patch));
+  }, [backend]);
 
   const updatePreferences = useCallback(async (patch: Partial<Preferences>) => {
-    if (!client || !preferences) return;
+    if (!backend || !preferences) return;
     const previous = preferences;
     // Optimistic, so the threshold slider re-splits the list as it moves.
     setPreferences({ ...previous, ...patch });
     try {
-      setPreferences(await client.updatePreferences(patch));
+      setPreferences(await backend.updatePreferences(patch));
     } catch (cause) {
       setPreferences(previous);
       showToast(cause instanceof Error ? cause.message : strings.errors.generic, 'danger');
     }
-  }, [client, preferences, showToast]);
+  }, [backend, preferences, showToast]);
 
   const setStatusLocally = useCallback((matchId: string, status: MatchStatus) => {
     setMatches((current) => current.map((match) =>
@@ -216,28 +261,28 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const approve = useCallback(async (matchId: string): Promise<PreparedApplication> => {
-    if (!client) throw new Error(strings.errors.offline);
+    if (!backend) throw new Error(strings.errors.offline);
     const previous = matches.find((m) => m.id === matchId)?.status ?? 'pending';
     setStatusLocally(matchId, 'approved');
     try {
-      return await client.approve(matchId);
+      return await backend.approve(matchId);
     } catch (cause) {
       setStatusLocally(matchId, previous);
       throw cause;
     }
-  }, [client, matches, setStatusLocally]);
+  }, [backend, matches, setStatusLocally]);
 
   const submit = useCallback(async (
     matchId: string, fields?: Record<string, string>, coverLetter?: string,
   ) => {
-    if (!client) throw new Error(strings.errors.offline);
+    if (!backend) throw new Error(strings.errors.offline);
     const match = matches.find((m) => m.id === matchId);
     const company = match?.posting.company ?? '';
     const previous = match?.status ?? 'approved';
 
     setStatusLocally(matchId, 'applied');
     try {
-      const updated = await client.submit(matchId, fields, coverLetter);
+      const updated = await backend.submit(matchId, fields, coverLetter);
       setMatches((current) => current.map((m) => (m.id === matchId ? updated : m)));
       // A 200 does not always mean it went in: the engine reports `needs_you`
       // when it hit a CAPTCHA or a login wall.
@@ -257,22 +302,22 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
       );
       throw cause;
     }
-  }, [client, matches, refresh, setStatusLocally, showToast]);
+  }, [backend, matches, refresh, setStatusLocally, showToast]);
 
   const skip = useCallback(async (matchId: string) => {
-    if (!client) throw new Error(strings.errors.offline);
+    if (!backend) throw new Error(strings.errors.offline);
     const match = matches.find((m) => m.id === matchId);
     const previous = match?.status ?? 'pending';
     setStatusLocally(matchId, 'skipped');
     showToast(strings.toast.skipped(match?.posting.company ?? ''));
     try {
-      const updated = await client.skip(matchId);
+      const updated = await backend.skip(matchId);
       setMatches((current) => current.map((m) => (m.id === matchId ? updated : m)));
     } catch {
       setStatusLocally(matchId, previous);
       showToast(strings.errors.generic, 'danger');
     }
-  }, [client, matches, setStatusLocally, showToast]);
+  }, [backend, matches, setStatusLocally, showToast]);
 
   const matchById = useCallback(
     (id: string) => matches.find((match) => match.id === id),
@@ -280,18 +325,18 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<HeraldState>(() => ({
-    phase, client, credentials,
+    phase, mode, backend, credentials,
     view, setView, selectedId, select, reviewing, setReviewing,
     profile, preferences, matches, stats, releases,
     refreshing, error, toast,
-    connect, disconnect, refresh, runCrawl,
+    connect, useThisMachine, disconnect, refresh, runCrawl,
     uploadResume, updateProfile, updatePreferences,
     approve, submit, skip,
     showToast, matchById,
   }), [
-    phase, client, credentials, view, selectedId, select, reviewing,
+    phase, mode, backend, credentials, view, selectedId, select, reviewing,
     profile, preferences, matches, stats, releases, refreshing, error, toast,
-    connect, disconnect, refresh, runCrawl, uploadResume, updateProfile,
+    connect, useThisMachine, disconnect, refresh, runCrawl, uploadResume, updateProfile,
     updatePreferences, approve, submit, skip, showToast, matchById,
   ]);
 
