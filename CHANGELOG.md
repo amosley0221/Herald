@@ -20,6 +20,18 @@ is rejected by CI.
   running Herald on the phone alone, with no engine to host.
 
 ### Added
+- The scan runs on the phone. Ingest, dedupe, prefilter, score and store, with
+  no engine behind it: the same pipeline code, the same prompts and the same
+  posting hashes, so a match found on the phone means what a match found on the
+  engine means. Sources, models and the score floor are all editable in the app,
+  so watching a new company needs no new build.
+- Prompt templates are embedded in `@herald/core`. The engine still prefers a
+  file under `config/prompts/`, so wording remains tunable without a rebuild,
+  and falls back to the embedded copy — which is what the phone runs, verified
+  byte-identical to the files.
+- `base64ToUtf8` and `parseModelJson` in `@herald/core`. React Native has no
+  `Buffer` and its `atob` is Latin-1 only, so a resume with an accent in it
+  decoded to mojibake.
 - A portable SHA-256 in `@herald/core`. `node:crypto` does not exist in React
   Native and `expo-crypto`'s digest is asynchronous, which would make
   `dedupeKey` async and infect every caller. Pinned by tests to `node:crypto`
