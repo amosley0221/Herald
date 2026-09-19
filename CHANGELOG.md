@@ -20,6 +20,15 @@ is rejected by CI.
   running Herald on the phone alone, with no engine to host.
 
 ### Added
+- The desktop app works on its own, and can share what it has with a phone.
+  It runs the same engine, with SQLite through Tauri and outbound HTTP through
+  the native stack — a webview cannot read a job board itself, since no ATS
+  sends CORS headers. Sharing is a small server in Rust that forwards each
+  request to the webview, which answers with the same backend the desktop
+  window uses, so a paired phone sees a Herald engine and there is still one
+  implementation of what a match is. Replicating between two databases would
+  instead have meant deciding what happens when both devices approve the same
+  match offline.
 - The scan runs on the phone. Ingest, dedupe, prefilter, score and store, with
   no engine behind it: the same pipeline code, the same prompts and the same
   posting hashes, so a match found on the phone means what a match found on the

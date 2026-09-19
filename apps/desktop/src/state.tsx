@@ -10,6 +10,9 @@ import {
 } from '@herald/core';
 import { createBackend, settings as engineSettings, setApiKey } from './engine/platform';
 import {
+  pairingStatus, serveRequests, startPairing, stopPairing, type PairingInfo,
+} from './engine/pairing';
+import {
   clearCredentials, loadCredentials, saveCredentials, type EngineCredentials,
 } from './lib/storage';
 
@@ -60,6 +63,10 @@ interface HeraldState {
   connect: (credentials: EngineCredentials) => Promise<void>;
   /** Run on this machine, with the given Anthropic key. */
   useThisMachine: (apiKey: string) => Promise<void>;
+  /** Serving this machine's engine to a phone on the same network. */
+  pairing: PairingInfo | null;
+  startSharing: () => Promise<void>;
+  stopSharing: () => Promise<void>;
   disconnect: () => void;
   refresh: () => Promise<void>;
   runCrawl: () => Promise<void>;
@@ -82,6 +89,7 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<Phase>('loading');
   const [credentials, setCredentials] = useState<EngineCredentials | null>(null);
   const [mode, setMode] = useState<BackendMode>('local');
+  const [pairing, setPairing] = useState<PairingInfo | null>(null);
   const [backend, setBackend] = useState<HeraldBackend | null>(null);
 
   const [view, setView] = useState<View>('today');
@@ -141,6 +149,36 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
       setPhase('ready');
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  /**
+   * Answers forwarded requests while sharing is on.
+   *
+   * Only when this machine is the one doing the work: paired with an engine
+   * there is nothing here to serve, and serving a copy of someone else's data
+   * would be a second source of truth.
+   */
+  useEffect(() => {
+    if (!backend || mode !== 'local' || !pairing) return;
+
+    let unlisten: (() => void) | undefined;
+    void serveRequests(backend).then((stop) => { unlisten = stop; });
+    return () => { unlisten?.(); };
+  }, [backend, mode, pairing]);
+
+  // Sharing survives a restart, so a phone that was paired stays paired.
+  useEffect(() => {
+    void pairingStatus().then(setPairing).catch(() => undefined);
+  }, []);
+
+  const startSharing = useCallback(async () => {
+    if (!backend) return;
+    setPairing(await startPairing(backend));
+  }, [backend]);
+
+  const stopSharing = useCallback(async () => {
+    await stopPairing();
+    setPairing(null);
   }, []);
 
   const useThisMachine = useCallback(async (apiKey: string) => {
@@ -329,14 +367,16 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
     view, setView, selectedId, select, reviewing, setReviewing,
     profile, preferences, matches, stats, releases,
     refreshing, error, toast,
-    connect, useThisMachine, disconnect, refresh, runCrawl,
+    connect, useThisMachine, disconnect,
+    pairing, startSharing, stopSharing, refresh, runCrawl,
     uploadResume, updateProfile, updatePreferences,
     approve, submit, skip,
     showToast, matchById,
   }), [
     phase, mode, backend, credentials, view, selectedId, select, reviewing,
     profile, preferences, matches, stats, releases, refreshing, error, toast,
-    connect, useThisMachine, disconnect, refresh, runCrawl, uploadResume, updateProfile,
+    connect, useThisMachine, disconnect,
+    pairing, startSharing, stopSharing, refresh, runCrawl, uploadResume, updateProfile,
     updatePreferences, approve, submit, skip, showToast, matchById,
   ]);
 

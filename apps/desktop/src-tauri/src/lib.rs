@@ -6,6 +6,8 @@
 //! it cannot do for itself -- unrestricted HTTP, a SQLite file, and somewhere
 //! to keep a key.
 
+mod pairing;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default()
@@ -15,7 +17,14 @@ pub fn run() {
         // read one. This routes those requests through the native stack.
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_store::Builder::new().build())
-        .plugin(tauri_plugin_sql::Builder::default().build());
+        .plugin(tauri_plugin_sql::Builder::default().build())
+        .manage(pairing::PairingState::default())
+        .invoke_handler(tauri::generate_handler![
+            pairing::start_pairing,
+            pairing::stop_pairing,
+            pairing::pairing_status,
+            pairing::pairing_reply,
+        ]);
 
     // The updater has no meaning on mobile, where the platform owns installs.
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
