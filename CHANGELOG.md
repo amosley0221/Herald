@@ -28,6 +28,11 @@ is rejected by CI.
 - The Android SDK licence step failed after accepting every licence. `yes` is
   killed by SIGPIPE the moment `sdkmanager` exits, and `pipefail` counted that
   as the step failing.
+- The Android release build was given 45 minutes, which was not enough to
+  distinguish a wedged build from a slow one — this project compiles the New
+  Architecture's generated C++ from cold on its first release. It now gets 90
+  minutes, reports a timestamped heartbeat every five, and always ends its log
+  with Gradle's own most recent output rather than a thread dump.
 - The Android release build could hang indefinitely. Gradle inherited the
   runner's stdin, so anything prompting for input waited forever, and a job's
   logs cannot be read until it ends — making the hang invisible for the six

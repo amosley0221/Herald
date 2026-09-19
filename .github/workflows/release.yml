@@ -95,8 +95,11 @@ jobs:
     runs-on: ubuntu-latest
     # A Gradle build that blocks on a prompt would otherwise sit until the
     # six-hour default, and its logs cannot be read until the job ends — so a
-    # hang is invisible exactly while you most need to see it.
-    timeout-minutes: 45
+    # hang is invisible exactly while you most need to see it. 45 minutes was
+    # not enough to tell a wedged build from a merely slow one: this project
+    # compiles the New Architecture's generated C++ from cold on the first
+    # release, which is long even for one ABI.
+    timeout-minutes: 90
     env:
       # `secrets` is not a valid context in a step-level `if`, but it is in job
       # env, so the optional OTA steps test this instead.
@@ -179,21 +182,42 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          # A build that wedges is invisible from outside: Actions withholds a
-          # job's logs until it ends, so a hang and a slow compile look
-          # identical until the job timeout finally kills it. This dumps every
-          # JVM's thread stacks five minutes before that deadline, which names
-          # the blocked task instead of leaving us to guess again.
+          # Actions withholds a job's logs until the job ends, so a wedged build
+          # and a slow one look identical while it matters. Two instruments make
+          # the difference legible after the fact.
+          #
+          # Gradle's output is teed to a file so both can quote it, and the last
+          # thing written to the log is always Gradle's own most recent output —
+          # a thread dump is thousands of lines, and whatever it buries is
+          # unreachable when the log is too large to fetch whole.
+          set -o pipefail
+
+          # A timestamped marker every five minutes. If Gradle is working, these
+          # show which task; if it is stuck, they show the same line each time.
           (
-            sleep 2400
-            echo "=== Gradle still running after 40 minutes. Thread dumps follow. ==="
+            started=$(date +%s)
+            while sleep 300; do
+              echo "--- heartbeat: $(( ($(date +%s) - started) / 60 ))m elapsed ---"
+              tail -n 3 gradle.log 2>/dev/null || echo "(no Gradle output yet)"
+            done
+          ) &
+          heartbeat=$!
+
+          # Thread stacks shortly before the job timeout, naming what each JVM
+          # is blocked on if it comes to that.
+          (
+            sleep 4800
+            echo "=== Gradle still running after 80 minutes. Thread dumps follow. ==="
             for pid in $(pgrep -f '[j]ava' || true); do
               echo "--- pid $pid ---"
               "$JAVA_HOME/bin/jstack" -l "$pid" 2>&1 || true
             done
+            echo "=== Gradle's own last 40 lines, repeated so they end the log ==="
+            tail -n 40 gradle.log 2>/dev/null || echo "(no Gradle output at all)"
           ) &
           watchdog=$!
-          trap 'kill "$watchdog" 2>/dev/null || true' EXIT
+
+          trap 'kill "$heartbeat" "$watchdog" 2>/dev/null || true' EXIT
 
           # Only arm64-v8a. Reanimated and the other native modules compile
           # their C++ once per ABI, and building all four means three quarters
@@ -205,7 +229,7 @@ jobs:
             -PHERALD_STORE_FILE=herald.keystore \
             -PHERALD_STORE_PASSWORD="$STORE_PASSWORD" \
             -PHERALD_KEY_ALIAS="$KEY_ALIAS" \
-            -PHERALD_KEY_PASSWORD="$KEY_PASSWORD" < /dev/null
+            -PHERALD_KEY_PASSWORD="$KEY_PASSWORD" < /dev/null 2>&1 | tee gradle.log
 
       # The name is what the release feed records and the in-app updater fetches.
       - name: Name the APK for the release
