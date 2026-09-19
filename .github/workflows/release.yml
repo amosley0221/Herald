@@ -182,54 +182,64 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          # Actions withholds a job's logs until the job ends, so a wedged build
-          # and a slow one look identical while it matters. Two instruments make
-          # the difference legible after the fact.
+          # Gradle writes to a file, which is streamed from there, rather than
+          # down the step's stdout pipe.
           #
-          # Gradle's output is teed to a file so both can quote it, and the last
-          # thing written to the log is always Gradle's own most recent output —
-          # a thread dump is thousands of lines, and whatever it buries is
-          # unreachable when the log is too large to fetch whole.
-          set -o pipefail
+          # Gradle forks worker and Kotlin daemon JVMs that inherit whatever
+          # stdout it was handed and outlive it, and a step ends when its stdout
+          # pipe closes, not when its main process exits. So when Gradle failed
+          # after nine minutes, those orphans held the pipe open and the step sat
+          # there for the remaining eighty — which read from outside as a hang
+          # and cost this release three runs. Handing them a file instead means
+          # the step ends when Gradle does.
 
-          # A timestamped marker every five minutes. If Gradle is working, these
-          # show which task; if it is stuck, they show the same line each time.
-          (
-            started=$(date +%s)
-            while sleep 300; do
-              echo "--- heartbeat: $(( ($(date +%s) - started) / 60 ))m elapsed ---"
-              tail -n 3 gradle.log 2>/dev/null || echo "(no Gradle output yet)"
-            done
-          ) &
-          heartbeat=$!
-
-          # Thread stacks shortly before the job timeout, naming what each JVM
-          # is blocked on if it comes to that.
-          (
-            sleep 4800
-            echo "=== Gradle still running after 80 minutes. Thread dumps follow. ==="
-            for pid in $(pgrep -f '[j]ava' || true); do
-              echo "--- pid $pid ---"
-              "$JAVA_HOME/bin/jstack" -l "$pid" 2>&1 || true
-            done
-            echo "=== Gradle's own last 40 lines, repeated so they end the log ==="
-            tail -n 40 gradle.log 2>/dev/null || echo "(no Gradle output at all)"
-          ) &
-          watchdog=$!
-
-          trap 'kill "$heartbeat" "$watchdog" 2>/dev/null || true' EXIT
-
+          # Metaspace, not heap: it is allocated outside -Xmx, so Expo's default
+          # -Xmx2048m -XX:MaxMetaspaceSize=512m capped class metadata at 512m no
+          # matter how much heap was free. The New Architecture's codegen and
+          # Kotlin compilation load far more classes than that, and the build
+          # died of `OutOfMemoryError: Metaspace`.
+          #
           # Only arm64-v8a. Reanimated and the other native modules compile
           # their C++ once per ABI, and building all four means three quarters
           # of the work is for architectures no real device uses: the x86 pair
           # exists for emulators, and armeabi-v7a for phones predating the
           # 64-bit requirement. Add ABIs back here if an old device needs one.
           ./gradlew assembleRelease --no-daemon --console=plain --stacktrace \
+            -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=2g" \
             -PreactNativeArchitectures=arm64-v8a \
             -PHERALD_STORE_FILE=herald.keystore \
             -PHERALD_STORE_PASSWORD="$STORE_PASSWORD" \
             -PHERALD_KEY_ALIAS="$KEY_ALIAS" \
-            -PHERALD_KEY_PASSWORD="$KEY_PASSWORD" < /dev/null 2>&1 | tee gradle.log
+            -PHERALD_KEY_PASSWORD="$KEY_PASSWORD" \
+            > gradle.log 2>&1 < /dev/null &
+          gradle=$!
+
+          # Stream the build as it runs, and stop the moment Gradle exits.
+          tail -n +1 -f --pid="$gradle" gradle.log &
+          streamer=$!
+
+          # A timestamped marker every five minutes. Logs only arrive when the
+          # job ends, so these are what distinguish a slow build from a stuck
+          # one. It follows Gradle's lifetime, so it cannot outlive the build
+          # and hold the step open itself.
+          (
+            started=$(date +%s)
+            while kill -0 "$gradle" 2>/dev/null; do
+              sleep 60
+              kill -0 "$gradle" 2>/dev/null || break
+              echo "--- heartbeat: $(( ($(date +%s) - started) / 60 ))m elapsed ---"
+            done
+          ) &
+          heartbeat=$!
+
+          trap 'kill "$streamer" "$heartbeat" 2>/dev/null || true' EXIT
+
+          set +e
+          wait "$gradle"
+          status=$?
+          set -e
+          echo "=== Gradle exited with status $status ==="
+          exit "$status"
 
       # The name is what the release feed records and the in-app updater fetches.
       - name: Name the APK for the release
