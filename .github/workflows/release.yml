@@ -126,7 +126,13 @@ jobs:
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
           echo "ANDROID_HOME=$ANDROID_HOME"
           echo "sdkmanager=$SDKMANAGER"
+          # `yes` is killed by SIGPIPE the instant sdkmanager has read the last
+          # prompt and exits, and `pipefail` would report that as a failed step
+          # even though every licence was accepted. Only sdkmanager's own exit
+          # status says whether this worked, so judge the pipeline by it.
+          set +o pipefail
           yes | "$SDKMANAGER" --licenses > /dev/null
+          set -o pipefail
           echo "--- platforms ---";    ls "$ANDROID_HOME/platforms"
           echo "--- build-tools ---";  ls "$ANDROID_HOME/build-tools"
           echo "--- ndk ---";          ls "$ANDROID_HOME/ndk" 2>/dev/null || echo "(no NDK installed)"
@@ -173,6 +179,22 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          # A build that wedges is invisible from outside: Actions withholds a
+          # job's logs until it ends, so a hang and a slow compile look
+          # identical until the job timeout finally kills it. This dumps every
+          # JVM's thread stacks five minutes before that deadline, which names
+          # the blocked task instead of leaving us to guess again.
+          (
+            sleep 2400
+            echo "=== Gradle still running after 40 minutes. Thread dumps follow. ==="
+            for pid in $(pgrep -f '[j]ava' || true); do
+              echo "--- pid $pid ---"
+              "$JAVA_HOME/bin/jstack" -l "$pid" 2>&1 || true
+            done
+          ) &
+          watchdog=$!
+          trap 'kill "$watchdog" 2>/dev/null || true' EXIT
+
           # Only arm64-v8a. Reanimated and the other native modules compile
           # their C++ once per ABI, and building all four means three quarters
           # of the work is for architectures no real device uses: the x86 pair

@@ -132,6 +132,107 @@ function crc32(buffer) {
   return (c ^ 0xffffffff) >>> 0;
 }
 
+// ── Container formats ───────────────────────────────────────────────────────
+//
+// Windows and macOS each want the whole icon family in one file. Tauri can
+// assemble those itself from a list of PNGs, but only for sizes that map onto a
+// native icon type — a 1024px icon at 1x density has no icns equivalent, which
+// is what "No matching IconType" means. Writing the two containers here removes
+// that guesswork: the bundler finds a finished .ico and .icns and copies them.
+
+/**
+ * One ICO image, as a bottom-up 32-bit DIB.
+ *
+ * PNG payloads are legal in an ICO since Vista but are read inconsistently by
+ * the resource compiler, so every entry here is an uncompressed DIB.
+ */
+function encodeIcoImage(pixels, size) {
+  const header = Buffer.alloc(40);
+  header.writeUInt32LE(40, 0);                // biSize
+  header.writeInt32LE(size, 4);               // biWidth
+  header.writeInt32LE(size * 2, 8);           // biHeight: the colour and mask planes stacked
+  header.writeUInt16LE(1, 12);                // biPlanes
+  header.writeUInt16LE(32, 14);               // biBitCount
+  header.writeUInt32LE(0, 16);                // biCompression: BI_RGB
+  header.writeUInt32LE(size * size * 4, 20);  // biSizeImage
+
+  // The colour plane: BGRA, bottom row first.
+  const colour = Buffer.alloc(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    const sourceRow = (size - 1 - y) * size * 4;
+    for (let x = 0; x < size; x++) {
+      const s = sourceRow + x * 4;
+      const d = (y * size + x) * 4;
+      colour[d] = pixels[s + 2];
+      colour[d + 1] = pixels[s + 1];
+      colour[d + 2] = pixels[s];
+      colour[d + 3] = pixels[s + 3];
+    }
+  }
+
+  // The AND mask is still required at 32bpp. Leaving it zero means "opaque
+  // everywhere" and defers to the alpha channel above, which is what we want.
+  const maskStride = Math.ceil(size / 32) * 4;
+  return Buffer.concat([header, colour, Buffer.alloc(maskStride * size)]);
+}
+
+/** An ICO file: a directory of entries, then the images they point at. */
+function encodeIco(images) {
+  const directory = Buffer.alloc(6);
+  directory.writeUInt16LE(0, 0);               // reserved
+  directory.writeUInt16LE(1, 2);               // 1 = icon
+  directory.writeUInt16LE(images.length, 4);
+
+  let offset = 6 + images.length * 16;
+  const entries = images.map(({ size, data }) => {
+    const entry = Buffer.alloc(16);
+    // 256 is written as 0: the field is one byte and 256 does not fit.
+    entry[0] = size >= 256 ? 0 : size;
+    entry[1] = size >= 256 ? 0 : size;
+    entry[2] = 0;                              // palette entries
+    entry[3] = 0;                              // reserved
+    entry.writeUInt16LE(1, 4);                 // colour planes
+    entry.writeUInt16LE(32, 6);                // bits per pixel
+    entry.writeUInt32LE(data.length, 8);
+    entry.writeUInt32LE(offset, 12);
+    offset += data.length;
+    return entry;
+  });
+
+  return Buffer.concat([directory, ...entries, ...images.map((image) => image.data)]);
+}
+
+/**
+ * An ICNS file: `icns`, a total length, then one length-prefixed chunk per
+ * icon. Every type used here takes a PNG payload, supported since 10.7.
+ */
+function encodeIcns(members) {
+  const chunks = members.map(({ type, data }) => {
+    const header = Buffer.alloc(8);
+    header.write(type, 0, 4, 'ascii');
+    header.writeUInt32BE(data.length + 8, 4);
+    return Buffer.concat([header, data]);
+  });
+
+  const body = Buffer.concat(chunks);
+  const header = Buffer.alloc(8);
+  header.write('icns', 0, 4, 'ascii');
+  header.writeUInt32BE(body.length + 8, 4);
+  return Buffer.concat([header, body]);
+}
+
+/** The emblem at one size, using the coverage the PNG targets use. */
+function emblem(size) {
+  return render({
+    size,
+    background: ONYX,
+    foreground: GOLD,
+    // Small icons get a slightly larger crown, as the PNG targets do: at 32px
+    // the gutters are what disappears first.
+    coverage: size <= 64 ? 0.7 : 0.62,
+  });
+}
+
 const TARGETS = [
   // Store/launcher icon: gold crown on the onyx field.
   { path: 'apps/android/assets/icon.png', size: 1024, background: ONYX, foreground: GOLD, coverage: 0.62 },
@@ -158,4 +259,28 @@ for (const target of TARGETS) {
   console.log(`  ${target.path} (${target.size}px)`);
 }
 
-console.log(`\nGenerated ${TARGETS.length} icons from the emblem.`);
+// ── The Windows and macOS containers ────────────────────────────────────────
+
+const ICO_SIZES = [16, 32, 48, 64, 128, 256];
+const icoPath = 'apps/desktop/src-tauri/icons/icon.ico';
+writeFileSync(
+  resolve(root, icoPath),
+  encodeIco(ICO_SIZES.map((size) => ({ size, data: encodeIcoImage(emblem(size), size) }))),
+);
+console.log(`  ${icoPath} (${ICO_SIZES.join(', ')}px)`);
+
+// Type codes are OSTypes, paired with the pixel size each one holds: ic07 is
+// 128x128 at 1x, ic13 the same icon at 2x, and so on up to ic10 (512 at 2x),
+// which is the largest icon macOS has.
+const ICNS_MEMBERS = [
+  ['ic11', 32], ['ic12', 64], ['ic07', 128], ['ic13', 256],
+  ['ic08', 256], ['ic14', 512], ['ic09', 512], ['ic10', 1024],
+];
+const icnsPath = 'apps/desktop/src-tauri/icons/icon.icns';
+writeFileSync(
+  resolve(root, icnsPath),
+  encodeIcns(ICNS_MEMBERS.map(([type, size]) => ({ type, data: encodePng(emblem(size), size) }))),
+);
+console.log(`  ${icnsPath} (${ICNS_MEMBERS.length} sizes)`);
+
+console.log(`\nGenerated ${TARGETS.length + 2} icons from the emblem.`);
