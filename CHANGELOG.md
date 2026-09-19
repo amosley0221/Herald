@@ -12,6 +12,14 @@ is rejected by CI.
 ## [Unreleased]
 
 ### Fixed
+- The desktop installers for Windows and macOS could not be built. Neither
+  platform can take a bare list of PNGs — Windows needs an `.ico` for its
+  resource file, and macOS maps each PNG onto a named icon type, which the
+  1024px source has none of. Both containers are now generated from the same
+  emblem as every other icon, so all three platforms build from one mark.
+- The Android SDK licence step failed after accepting every licence. `yes` is
+  killed by SIGPIPE the moment `sdkmanager` exits, and `pipefail` counted that
+  as the step failing.
 - The Android release build could hang indefinitely. Gradle inherited the
   runner's stdin, so anything prompting for input waited forever, and a job's
   logs cannot be read until it ends — making the hang invisible for the six
