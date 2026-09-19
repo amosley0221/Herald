@@ -12,6 +12,11 @@ is rejected by CI.
 ## [Unreleased]
 
 ### Fixed
+- The Android build failed `CheckAarMetadata`: a dependency in the Expo SDK
+  requires compiling against API 36, and the app pinned `compileSdkVersion` to
+  35. The pin is removed rather than raised — Expo's own default is consistent
+  with the dependencies it ships, so pinning a number here can only ever drift
+  out of step with them again.
 - The Android release build ran out of Metaspace. Metaspace is allocated
   outside the heap, so Expo's default `-Xmx2048m -XX:MaxMetaspaceSize=512m`
   capped class metadata at 512m however much heap was free — and the New
