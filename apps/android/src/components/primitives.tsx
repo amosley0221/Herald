@@ -174,6 +174,18 @@ export function Badge({ children, tone = 'muted' }: { children: ReactNode; tone?
 
 // ── Switch & Slider ─────────────────────────────────────────────────────────
 
+/**
+ * The track of a switch that is off.
+ *
+ * `graphite2` is within a few points of the background, so an off switch drew
+ * as a lone stone thumb floating at the edge of the screen with no track under
+ * it -- unreadable as a switch at all, never mind as one that is off. This is
+ * `line` (the app's quiet edge, gold at a quarter opacity) composited over
+ * `onyx`, so it matches every other hairline in the app while staying a solid
+ * value, since Android tints a track with alpha unpredictably.
+ */
+const OFF_TRACK = '#3A311E';
+
 export function Switch({ label: text, value, onChange, hint }: {
   label: string; value: boolean; onChange: (next: boolean) => void; hint?: string;
 }) {
@@ -187,9 +199,9 @@ export function Switch({ label: text, value, onChange, hint }: {
         value={value}
         onValueChange={onChange}
         accessibilityLabel={text}
-        trackColor={{ false: color.graphite2, true: color.gold }}
+        trackColor={{ false: OFF_TRACK, true: color.gold }}
         thumbColor={value ? color.onyx : color.stone}
-        ios_backgroundColor={color.graphite2}
+        ios_backgroundColor={OFF_TRACK}
       />
     </View>
   );
