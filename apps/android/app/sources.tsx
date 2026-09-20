@@ -2,8 +2,14 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { defineSource, strings, type SourceConfig } from '@herald/core';
-import { BodyText, Button, Hairline, Label, Loading, Tag } from '../src/components/primitives';
+import { Linking } from 'react-native';
+import {
+  SOURCE_PRESETS, createHttpClient, defineSource, findPreset, missingCredentials, strings,
+  testSource, type SourceConfig, type SourcePreset, type SourceTestResult,
+} from '@herald/core';
+import {
+  BodyText, Button, Hairline, Label, Loading, Switch, Tag,
+} from '../src/components/primitives';
 import { body, color, display, space } from '../src/theme';
 import { getSources, setSources } from '../src/engine/settings';
 
@@ -92,7 +98,8 @@ export default function Sources() {
     await update(info, [...entries, raw]);
   };
 
-  const total = ADAPTERS.reduce((count, info) => count + entriesFor(info).length, 0);
+  const total = ADAPTERS.reduce((count, info) => count + entriesFor(info).length, 0)
+    + sources.filter((entry) => entry.enabled && findPreset(entry.id)).length;
 
   return (
     <ScrollView
@@ -112,8 +119,37 @@ export default function Sources() {
         <BodyText style={display(22, 500)}>JOB SOURCES</BodyText>
         <BodyText size={14} tone={color.stone} style={{ lineHeight: 22 }}>
           {total === 0
-            ? 'Nothing is being watched yet. Add a company board below and Herald will read it on the next scan.'
-            : `Herald reads ${total} ${total === 1 ? 'board' : 'boards'} on every scan.`}
+            ? 'Nothing is being watched yet. Turn on a job site below to search broadly, or add a company board to follow one employer.'
+            : `Herald reads ${total} ${total === 1 ? 'source' : 'sources'} on every scan.`}
+        </BodyText>
+      </View>
+
+      <Hairline />
+      <View style={styles.section}>
+        <Label size={11}>Job sites</Label>
+        <BodyText size={12} tone={color.stone} style={{ lineHeight: 19 }}>
+          These search across employers rather than following one. The ones that
+          search use the roles and location from Preferences.
+        </BodyText>
+      </View>
+
+      {SOURCE_PRESETS.map((preset) => (
+        <PresetRow
+          key={preset.id}
+          preset={preset}
+          source={sources.find((entry) => entry.id === preset.id) ?? null}
+          onChange={(next) => void persist([
+            ...sources.filter((entry) => entry.id !== preset.id), next,
+          ])}
+        />
+      ))}
+
+      <Hairline />
+      <View style={styles.section}>
+        <Label size={11}>Company boards</Label>
+        <BodyText size={12} tone={color.stone} style={{ lineHeight: 19 }}>
+          Follow one employer's own listings. These are the original postings,
+          so when a job shows up on a job site too, this is the one Herald keeps.
         </BodyText>
       </View>
 
@@ -166,12 +202,142 @@ export default function Sources() {
       <Hairline />
       <View style={styles.section}>
         <BodyText size={13} tone={color.stone} style={{ lineHeight: 21 }}>
-          Workday and custom JSON boards are supported by the same engine but
-          need more than a name, so they are configured on a hosted engine
-          rather than here.
+          Indeed and LinkedIn are missing on purpose: neither offers a way to
+          search them that does not involve scraping, which their terms forbid
+          and which would break silently. Adzuna covers much of the same ground
+          through an interface meant to be used.
+        </BodyText>
+        <BodyText size={13} tone={color.stone} style={{ lineHeight: 21 }}>
+          Workday and hand-written JSON sources run on the same engine but need
+          more than a name, so they are configured on a hosted engine.
         </BodyText>
       </View>
     </ScrollView>
+  );
+}
+
+/**
+ * One job site, with whatever it needs before it can run.
+ *
+ * The test button is the point of this row. These sources are definitions
+ * pointing at somebody else's API, and the failure that matters is not an error
+ * -- it is a mapping that reads nothing and looks exactly like a quiet day. One
+ * tap answers it, against the live service, on the device that will do the
+ * scanning.
+ */
+function PresetRow({ preset, source, onChange }: {
+  preset: SourcePreset;
+  source: SourceConfig | null;
+  onChange: (next: SourceConfig) => void;
+}) {
+  const current = source ?? preset.build();
+  const [result, setResult] = useState<SourceTestResult | null>(null);
+  const [testing, setTesting] = useState(false);
+  const missing = missingCredentials(preset, current);
+
+  const setOption = (option: string, value: string) => {
+    onChange(defineSource({ ...current, options: { ...current.options, [option]: value } }));
+  };
+
+  const runTest = async () => {
+    setTesting(true);
+    setResult(null);
+    try {
+      const http = createHttpClient({
+        rateLimitPerMinute: current.rateLimitPerMinute,
+        log: { error() {}, warn() {}, info() {}, debug() {} },
+        signal: new AbortController().signal,
+      });
+      setResult(await testSource(current, {
+        http,
+        // The same terms a scan would use, so a pass here means a pass there.
+        search: { queries: ['engineer'], location: '', remote: true },
+      }));
+    } catch (cause) {
+      setResult({
+        ok: false, samples: [], read: 0, missingFields: [],
+        problems: [cause instanceof Error ? cause.message : String(cause)],
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <View>
+      <Hairline />
+      <View style={styles.section}>
+        <Switch
+          label={preset.name}
+          value={current.enabled}
+          onChange={(next) => onChange(defineSource({ ...current, enabled: next }))}
+          hint={preset.covers}
+        />
+
+        {missing.length > 0 && current.enabled ? (
+          <BodyText size={12} tone={color.danger} style={{ lineHeight: 19 }}>
+            This will not run until you fill in the {missing.length === 1 ? 'field' : 'fields'} below.
+          </BodyText>
+        ) : null}
+
+        {(preset.credentials ?? []).map((credential) => (
+          <View key={credential.option} style={{ gap: 6 }}>
+            <Label size={11}>{credential.label}</Label>
+            <TextInput
+              defaultValue={String(current.options[credential.option] ?? '')}
+              onEndEditing={(event) => setOption(credential.option, event.nativeEvent.text.trim())}
+              placeholder={credential.label}
+              placeholderTextColor={color.stone}
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={[body(15, 400), styles.input]}
+            />
+            <Pressable onPress={() => void Linking.openURL(credential.signupUrl)} hitSlop={8}>
+              <BodyText size={12} tone={color.stone} style={{ lineHeight: 19 }}>
+                {credential.help} <BodyText size={12} tone={color.gold}>Get one</BodyText>
+              </BodyText>
+            </Pressable>
+          </View>
+        ))}
+
+        <View style={styles.row}>
+          <Button variant="outline" loading={testing} onPress={() => void runTest()}>
+            {testing ? 'Testing…' : 'Test'}
+          </Button>
+          {result ? (
+            <BodyText size={12} tone={result.ok ? color.success : color.danger} style={{ flex: 1 }}>
+              {result.ok
+                ? `Read ${result.read} ${result.read === 1 ? 'posting' : 'postings'}.`
+                : 'Nothing came back.'}
+            </BodyText>
+          ) : null}
+        </View>
+
+        {result?.samples[0] ? (
+          <View style={styles.sample}>
+            <Label size={11}>First posting, as Herald read it</Label>
+            <BodyText size={14}>{result.samples[0].title}</BodyText>
+            <BodyText size={13} tone={color.stone}>
+              {result.samples[0].company || '(no company)'}
+              {result.samples[0].location ? ` · ${result.samples[0].location}` : ''}
+            </BodyText>
+          </View>
+        ) : null}
+
+        {result && result.missingFields.length > 0 ? (
+          <BodyText size={12} tone={color.danger} style={{ lineHeight: 19 }}>
+            Every posting came back with no {result.missingFields.join(', ')}. That
+            is a mapping problem rather than a quiet day — worth reporting.
+          </BodyText>
+        ) : null}
+
+        {result?.problems.map((problem) => (
+          <BodyText key={problem} size={12} tone={color.stone} style={{ lineHeight: 19 }}>
+            {problem}
+          </BodyText>
+        ))}
+      </View>
+    </View>
   );
 }
 
@@ -186,4 +352,5 @@ const styles = StyleSheet.create({
     flex: 1, color: color.bone, borderWidth: 1, borderColor: color.line,
     paddingHorizontal: space[2], paddingVertical: 10,
   },
+  sample: { borderWidth: 1, borderColor: color.line, padding: space[2], gap: 4 },
 });

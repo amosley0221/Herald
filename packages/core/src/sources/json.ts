@@ -21,6 +21,12 @@ import {
  *     },
  *     "fieldMap": { "title": "name", "company": "org.name", "url": "links.self" }
  *   }
+ *
+ * A URL may also carry `{query}`, `{location}` and `{since}`, which is what
+ * turns this from a feed reader into a search client: the same definition then
+ * asks an aggregator the user's own question rather than a fixed one. `{query}`
+ * runs the request once per role the user is looking for, since aggregators
+ * take a phrase rather than a boolean expression.
  */
 export const jsonAdapter: SourceAdapter = {
   id: 'json',
@@ -36,37 +42,69 @@ export const jsonAdapter: SourceAdapter = {
     const method = String(source.options.method ?? 'GET').toUpperCase();
     const bodyTemplate = source.options.body as Record<string, unknown> | undefined;
 
-    for (let page = pageStart; page < pageStart + maxPages; page++) {
-      if (ctx.signal.aborted) return;
-      const url = urlTemplate.replace(/\{page\}/g, String(page));
-      let payload: unknown;
-      try {
-        payload = await ctx.http.json<unknown>(url, {
-          method,
-          ...(bodyTemplate
-            ? {
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(substitute(bodyTemplate, { page, since: ctx.since.toISOString() })),
-              }
-            : {}),
+    // A `{query}` source is a search, so it needs something to search for.
+    // Running it with an empty term would ask an aggregator for every job it
+    // has, which is both useless and the most expensive thing we could do.
+    const wantsQuery = /\{query\}/.test(urlTemplate) || hasPlaceholder(bodyTemplate, 'query');
+    if (wantsQuery && !ctx.search?.queries.length) {
+      ctx.log.warn('search source has nothing to search for; skipping', { source: source.id });
+      return;
+    }
+    const queries = wantsQuery ? ctx.search!.queries : [''];
+    const maxQueries = Number(source.options.maxQueries ?? 4);
+
+    for (const query of queries.slice(0, maxQueries)) {
+      for (let page = pageStart; page < pageStart + maxPages; page++) {
+        if (ctx.signal.aborted) return;
+        const vars = {
+          ...stringOptions(source.options),
+          page: String(page),
+          query,
+          location: ctx.search?.location ?? '',
+          since: ctx.since.toISOString(),
+          sinceDate: ctx.since.toISOString().slice(0, 10),
+        };
+        const url = expand(urlTemplate, vars);
+        // Some APIs authenticate by header rather than query string, and take
+        // the key under a name of their own choosing, so the header set is
+        // configuration too. Values are templated but not URL-encoded: a header
+        // is not a URL, and percent-encoding an email would break the one
+        // USAJOBS asks for.
+        const headers = expandHeaders(source.options.headers, {
+          ...stringOptions(source.options),
+          query,
+          location: ctx.search?.location ?? '',
         });
-      } catch (cause) {
-        ctx.log.warn('json source failed', { source: source.id, url, err: String(cause) });
-        return;
-      }
+        let payload: unknown;
+        try {
+          payload = await ctx.http.json<unknown>(url, {
+            method,
+            ...(headers ? { headers } : {}),
+            ...(bodyTemplate
+              ? {
+                  headers: { 'Content-Type': 'application/json', ...headers },
+                  body: JSON.stringify(substitute(bodyTemplate, vars)),
+                }
+              : {}),
+          });
+        } catch (cause) {
+          ctx.log.warn('json source failed', { source: source.id, url, err: String(cause) });
+          break;
+        }
 
-      const list = listPath ? readPath(payload, listPath) : payload;
-      if (!Array.isArray(list)) {
-        ctx.log.warn('json source returned no array', { source: source.id, listPath });
-        return;
-      }
-      if (list.length === 0) return;
+        const list = listPath ? readPath(payload, listPath) : payload;
+        if (!Array.isArray(list)) {
+          ctx.log.warn('json source returned no array', { source: source.id, listPath });
+          break;
+        }
+        if (list.length === 0) break;
 
-      for (const record of list) {
-        const posting = mapRecord(record, source, ctx);
-        if (!posting) continue;
-        if (new Date(posting.postedAt) < ctx.since) continue;
-        yield posting;
+        for (const record of list) {
+          const posting = mapRecord(record, source, ctx);
+          if (!posting) continue;
+          if (new Date(posting.postedAt) < ctx.since) continue;
+          yield posting;
+        }
       }
     }
   },
@@ -94,7 +132,7 @@ function mapRecord(record: unknown, source: SourceConfig, ctx: FetchContext): Ra
   }
 
   const rawPostedAt = str(map.postedAt);
-  const postedAt = rawPostedAt ? new Date(rawPostedAt) : new Date();
+  const postedAt = rawPostedAt ? parseDate(rawPostedAt) : new Date();
   const location = str(map.location) ?? '';
   const descriptionRaw = str(map.description) ?? '';
   const description = /<[a-z][\s\S]*>/i.test(descriptionRaw) ? htmlToText(descriptionRaw) : descriptionRaw;
@@ -122,8 +160,79 @@ function mapRecord(record: unknown, source: SourceConfig, ctx: FetchContext): Ra
   };
 }
 
+/**
+ * A published-at value as some feed or other writes it.
+ *
+ * Several publish epoch seconds. `new Date("1699999999")` is an invalid date,
+ * and the caller's fallback would then stamp every posting with the time of the
+ * scan -- so the whole run would look freshly posted and nothing would ever age
+ * out. Digits alone are therefore read as an epoch, in whichever unit their
+ * magnitude implies.
+ */
+function parseDate(value: string): Date {
+  const trimmed = value.trim();
+  if (/^\d{9,14}$/.test(trimmed)) {
+    const n = Number(trimmed);
+    return new Date(trimmed.length <= 11 ? n * 1000 : n);
+  }
+  return new Date(trimmed);
+}
+
 function isTruthy(value: string): boolean {
   return /^(true|yes|1|remote)$/i.test(value.trim());
+}
+
+/**
+ * Fills placeholders in a URL, encoding each value.
+ *
+ * Encoding here rather than at the call site because these values are the
+ * user's own words -- a role like "C++ engineer" or a location with a comma
+ * would otherwise build a URL that means something else.
+ */
+function expand(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{(\w+)\}/g, (match, name: string) =>
+    name in vars ? encodeURIComponent(vars[name]!) : match);
+}
+
+/** Whether a body template mentions a placeholder anywhere in its values. */
+/**
+ * The source's own string options, usable as placeholders.
+ *
+ * This is what lets a key that travels as a query parameter work without a
+ * second mechanism for secrets: `options.appKey` fills `{appKey}`, the same way
+ * a page number fills `{page}`.
+ */
+function stringOptions(options: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(options)) {
+    if (typeof value === 'string') out[key] = value;
+  }
+  return out;
+}
+
+/** Request headers from config, with `{option}` placeholders filled in. */
+function expandHeaders(
+  configured: unknown,
+  vars: Record<string, string>,
+): Record<string, string> | null {
+  if (!configured || typeof configured !== 'object' || Array.isArray(configured)) return null;
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(configured as Record<string, unknown>)) {
+    if (typeof value !== 'string') continue;
+    out[name] = value.replace(/\{(\w+)\}/g, (match, key: string) =>
+      key in vars ? vars[key]! : match);
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+function hasPlaceholder(template: Record<string, unknown> | undefined, name: string): boolean {
+  if (!template) return false;
+  return Object.values(template).some((value) =>
+    typeof value === 'string'
+      ? value.includes(`{${name}}`)
+      : value && typeof value === 'object' && !Array.isArray(value)
+        ? hasPlaceholder(value as Record<string, unknown>, name)
+        : false);
 }
 
 /** Replaces `{page}` / `{since}` placeholders inside a request body template. */
