@@ -2,7 +2,7 @@ import * as SQLite from 'expo-sqlite';
 import type {
   Match, Preferences, PreparedApplication, Profile, RawPosting, TodayStats,
 } from '@herald/core';
-import { randomId } from '@herald/core';
+import { once, randomId } from '@herald/core';
 
 /**
  * On-device storage.
@@ -132,12 +132,17 @@ interface MatchRow {
   confirmation_image: string | null; blocked_reason: string | null; created_at: string;
 }
 
-let handle: SQLite.SQLiteDatabase | null = null;
-
-/** Opens the database, applying any migrations it has not seen. */
-export async function openDb(): Promise<SQLite.SQLiteDatabase> {
-  if (handle) return handle;
-
+/**
+ * Opens the database, applying any migrations it has not seen.
+ *
+ * Guarded by `once` rather than by a resolved handle, because every caller here
+ * is racing every other: the first paint asks for matches, stats and
+ * preferences together, and a check against an assigned-at-the-end handle lets
+ * all three start their own open. Two opens of one SQLite file leave one
+ * connection holding a released native pointer, which surfaces later and
+ * somewhere else as `NativeDatabase.prepareAsync ... NullPointerException`.
+ */
+export const openDb: () => Promise<SQLite.SQLiteDatabase> = once(async () => {
   const db = await SQLite.openDatabaseAsync('herald.db');
   // Write-ahead logging keeps a background scan from blocking the UI's reads.
   await db.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
@@ -159,15 +164,8 @@ export async function openDb(): Promise<SQLite.SQLiteDatabase> {
     });
   }
 
-  handle = db;
   return db;
-}
-
-/** Closes and forgets the handle. Only tests need this. */
-export async function closeDb(): Promise<void> {
-  await handle?.closeAsync();
-  handle = null;
-}
+});
 
 // ── Postings ────────────────────────────────────────────────────────────────
 

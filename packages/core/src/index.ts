@@ -30,6 +30,7 @@ export { jsonAdapter } from './sources/json.js';
 export {
   SOURCE_PRESETS, findPreset, missingCredentials, type SourcePreset,
 } from './sources/presets.js';
+export { once } from './once.js';
 export { testSource, type SourceTestResult, type SourceTestOptions } from './sources/test.js';
 export * from './pipeline/dedupe.js';
 export * from './pipeline/prefilter.js';
