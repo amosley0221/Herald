@@ -11,6 +11,8 @@ is rejected by CI.
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-09-20
+
 ### Fixed
 - Uploading a `.docx` resume failed with `400 invalid_request_error: The
   request body is not valid JSON: invalid high surrogate in string`. A `.docx`
