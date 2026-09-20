@@ -11,6 +11,8 @@ is rejected by CI.
 
 ## [Unreleased]
 
+## [0.2.6] — 2026-09-20
+
 ### Fixed
 - A switch that was off was unreadable on Android. Its track used a colour a
   few points from the background, so all that showed was the thumb — a lone

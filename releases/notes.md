@@ -1,13 +1,6 @@
 ### Fixed
-- **Every screen failed with `NativeDatabase.prepareAsync has been rejected —
-  java.lang.NullPointerException` on Android.** Opening the database cached the
-  finished handle rather than the work in progress, so the three requests the
-  first screen makes at once — matches, stats, preferences — each found no
-  handle and each opened the file. Two connections to one SQLite file leave one
-  holding a released native pointer, and it fails later and somewhere else,
-  which is why the message named a statement rather than the open. Desktop
-  already cached the promise and was never affected.
-- The last character of a heading was clipped on Android — the Today screen
-  read `TODA`. Android measures text with any letter spacing down a path that
-  under-reports the final glyph, so the view clips its own last letter; every
-  tracked style now reserves the room.
+- A switch that was off was unreadable on Android. Its track used a colour a
+  few points from the background, so all that showed was the thumb — a lone
+  dot at the edge of the screen, with nothing to mark it as a switch or say
+  which way it was set. The off track is now the same quiet gold hairline every
+  other edge in the app uses.

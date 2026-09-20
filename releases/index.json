@@ -1,8 +1,17 @@
 {
-  "latest": "0.2.5",
-  "androidVersionCode": 2005,
+  "latest": "0.2.6",
+  "androidVersionCode": 2006,
   "minSupported": "0.0.0",
   "releases": [
+    {
+      "version": "0.2.6",
+      "date": "2026-09-20",
+      "notesMarkdown": "### Fixed\n- A switch that was off was unreadable on Android. Its track used a colour a\n  few points from the background, so all that showed was the thumb — a lone\n  dot at the edge of the screen, with nothing to mark it as a switch or say\n  which way it was set. The off track is now the same quiet gold hairline every\n  other edge in the app uses.",
+      "androidVersionCode": 2006,
+      "minSupported": "0.0.0",
+      "androidApkUrl": null,
+      "patches": []
+    },
     {
       "version": "0.2.5",
       "date": "2026-09-20",

@@ -1,6 +1,6 @@
 {
   "name": "@herald/engine",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "private": true,
   "description": "Herald engine — ingests postings, scores them against the resume, prepares and submits applications.",
   "type": "module",
