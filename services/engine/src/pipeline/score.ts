@@ -64,7 +64,7 @@ export class Scorer {
     });
 
     const raw = await this.llm.completeJson(
-      { model: this.config.llm.scoreModel, prompt, maxTokens: 1024, temperature: 0 },
+      { model: this.config.llm.scoreModel, prompt, maxTokens: 1024 },
       (value) => ScoreSchema.parse(value),
     );
 

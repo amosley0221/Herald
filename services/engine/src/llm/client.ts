@@ -8,7 +8,6 @@ export interface CompletionRequest {
   system?: string;
   prompt: string;
   maxTokens?: number;
-  temperature?: number;
   /**
    * Text the assistant turn is forced to start with. Prefilling `{` makes the
    * model continue a JSON object instead of prefacing it with prose.
@@ -63,7 +62,6 @@ export class LlmClient {
         const message = await this.anthropic!.messages.create({
           model: request.model,
           max_tokens: request.maxTokens ?? this.config.llm.maxOutputTokens,
-          temperature: request.temperature ?? 0,
           ...(request.system ? { system: request.system } : {}),
           messages: [
             { role: 'user', content: request.prompt },
@@ -92,7 +90,6 @@ export class LlmClient {
         ...request,
         prompt: `${request.prompt}\n\nYour previous reply could not be parsed as JSON. Reply with the JSON object only.`,
         prefill: '{',
-        temperature: 0,
       });
       return validate(JSON.parse(extractJson(retry)));
     }

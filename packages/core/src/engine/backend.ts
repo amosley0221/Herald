@@ -130,7 +130,8 @@ export class LocalBackend implements HeraldBackend {
             const llm = new Llm(apiKey, await this.settings.getModels(), this.platform.fetch);
             coverLetter = await llm.coverLetter(
               { ...match.posting, externalId: match.posting.id, raw: null },
-              stored.resumeText, stored.profile,
+              stored.profile,
+              match.why[0],
             );
           } catch {
             // A missing letter is worth far less than a blocked application;

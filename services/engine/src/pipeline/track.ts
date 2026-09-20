@@ -103,7 +103,6 @@ export class ReplyTracker {
               body: message.body.slice(0, 4_000),
             }),
             maxTokens: 400,
-            temperature: 0,
           },
           (value) => ClassificationSchema.parse(value),
         );
