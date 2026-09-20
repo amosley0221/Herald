@@ -18,6 +18,7 @@ export * from './engine/http.js';
 export * from './engine/crawl.js';
 export * from './engine/backend.js';
 export * from './base64.js';
+export * from './docx.js';
 export * from './hash.js';
 export * from './prompts.js';
 export * from './sources/types.js';
