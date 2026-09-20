@@ -11,6 +11,8 @@ is rejected by CI.
 
 ## [Unreleased]
 
+## [0.2.5] — 2026-09-20
+
 ### Fixed
 - **Every screen failed with `NativeDatabase.prepareAsync has been rejected —
   java.lang.NullPointerException` on Android.** Opening the database cached the
