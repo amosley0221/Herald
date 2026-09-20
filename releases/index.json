@@ -9,7 +9,7 @@
       "notesMarkdown": "### Fixed\n- A switch that was off was unreadable on Android. Its track used a colour a\n  few points from the background, so all that showed was the thumb — a lone\n  dot at the edge of the screen, with nothing to mark it as a switch or say\n  which way it was set. The off track is now the same quiet gold hairline every\n  other edge in the app uses.",
       "androidVersionCode": 2006,
       "minSupported": "0.0.0",
-      "androidApkUrl": null,
+      "androidApkUrl": "https://github.com/amosley0221/Herald/releases/download/v0.2.6/herald-0.2.6.apk",
       "patches": []
     },
     {
