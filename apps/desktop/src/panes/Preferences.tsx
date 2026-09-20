@@ -1,6 +1,11 @@
-import { useRef, useState } from 'react';
-import { clockTime, strings, thousands } from '@herald/core';
+import { useEffect, useRef, useState } from 'react';
+import {
+  SOURCE_PRESETS, clockTime, createHttpClient, defineSource, findPreset, missingCredentials,
+  strings, testSource, thousands,
+  type SourceConfig, type SourcePreset, type SourceTestResult,
+} from '@herald/core';
 import { Button, Label, Slider, Switch, Tag } from '../components/primitives';
+import { settings as engineSettings, setSources } from '../engine/platform';
 import { useHerald } from '../state';
 
 /**
@@ -291,6 +296,8 @@ export function PreferencesPane() {
         </Section>
       ) : null}
 
+      {mode === 'local' ? <SourcesSection /> : null}
+
       <Section>
         <div className="row-actions">
           <Button variant="outline" onClick={() => setView('releases')}>
@@ -298,10 +305,11 @@ export function PreferencesPane() {
           </Button>
           <Button variant="ghost" onClick={disconnect}>{strings.preferences.signOut}</Button>
         </div>
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-          Sources are configured on the engine. Herald reads every board listed
-          there once an hour.
-        </p>
+        {mode === 'local' ? null : (
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            Sources are configured on the engine this app is paired with.
+          </p>
+        )}
       </Section>
     </div>
   );
@@ -336,6 +344,239 @@ function LabelledInput({ label, value, placeholder, onSave }: {
         placeholder={placeholder}
         onBlur={(event) => onSave(event.target.value.trim() || null)}
       />
+    </div>
+  );
+}
+
+/** Adapters that take a board name and nothing else. */
+const BOARD_ADAPTERS: Array<{
+  adapter: SourceConfig['adapter']; title: string; listKey: string; example: string; hint: string;
+}> = [
+  { adapter: 'greenhouse', title: 'Greenhouse', listKey: 'boards', example: 'stripe', hint: 'boards.greenhouse.io/<name>' },
+  { adapter: 'lever', title: 'Lever', listKey: 'sites', example: 'figma', hint: 'jobs.lever.co/<name>' },
+  { adapter: 'ashby', title: 'Ashby', listKey: 'boards', example: 'notion', hint: 'jobs.ashbyhq.com/<name>' },
+];
+
+/**
+ * Where the postings come from, when this machine is the one doing the work.
+ *
+ * Paired with a hosted engine there is nothing to configure here -- that engine
+ * owns its own source list, and editing a second one would quietly do nothing.
+ */
+function SourcesSection() {
+  const [sources, setLocal] = useState<SourceConfig[] | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
+  useEffect(() => { void engineSettings.getSources().then(setLocal); }, []);
+  if (!sources) return null;
+
+  const persist = async (next: SourceConfig[]) => {
+    setLocal(next);
+    await setSources(next);
+  };
+
+  const entriesFor = (listKey: string, adapter: string): string[] => {
+    const value = sources.find((entry) => entry.adapter === adapter)?.options[listKey];
+    return Array.isArray(value) ? (value as string[]) : [];
+  };
+
+  const setEntries = async (adapter: SourceConfig['adapter'], listKey: string, entries: string[]) => {
+    const existing = sources.find((entry) => entry.adapter === adapter);
+    const next = defineSource({
+      ...(existing ?? { id: adapter, adapter }),
+      // An employer's own posting outranks the same job seen on an aggregator.
+      priority: 10,
+      options: { ...(existing?.options ?? {}), [listKey]: entries },
+    });
+    await persist([...sources.filter((entry) => entry.adapter !== adapter), next]);
+  };
+
+  return (
+    <>
+      <Section label="Job sites">
+        <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
+          These search across employers rather than following one, using the
+          roles and location above.
+        </p>
+        {SOURCE_PRESETS.map((preset) => (
+          <PresetRow
+            key={preset.id}
+            preset={preset}
+            source={sources.find((entry) => entry.id === preset.id) ?? null}
+            onChange={(next) => void persist([
+              ...sources.filter((entry) => entry.id !== preset.id), next,
+            ])}
+          />
+        ))}
+        <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
+          Indeed and LinkedIn are absent on purpose: reaching either means
+          scraping, which their terms forbid and which fails by going quiet
+          rather than by erroring. Adzuna covers much of the same ground through
+          an interface meant to be used.
+        </p>
+      </Section>
+
+      <Section label="Company boards">
+        <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
+          Follow one employer's own listings. These are the original postings, so
+          a job seen here and on a job site is kept as this one.
+        </p>
+        {BOARD_ADAPTERS.map((info) => {
+          const entries = entriesFor(info.listKey, info.adapter);
+          const draft = drafts[info.adapter] ?? '';
+          const add = () => {
+            const value = draft.trim().toLowerCase();
+            if (!value || entries.includes(value)) return;
+            setDrafts((current) => ({ ...current, [info.adapter]: '' }));
+            void setEntries(info.adapter, info.listKey, [...entries, value]);
+          };
+          return (
+            <div key={info.adapter} className="stack stack--tight">
+              <Label className="label--tight">{info.title}</Label>
+              {entries.length > 0 ? (
+                <div className="row-actions" style={{ flexWrap: 'wrap' }}>
+                  {entries.map((entry) => (
+                    <Tag
+                      key={entry}
+                      onRemove={() => void setEntries(
+                        info.adapter, info.listKey, entries.filter((item) => item !== entry),
+                      )}
+                    >
+                      {entry}
+                    </Tag>
+                  ))}
+                </div>
+              ) : null}
+              <div className="row-actions">
+                <input
+                  className="field"
+                  value={draft}
+                  aria-label={`${info.title} board`}
+                  placeholder={`${info.example} — ${info.hint}`}
+                  onChange={(event) => setDrafts((c) => ({ ...c, [info.adapter]: event.target.value }))}
+                  onKeyDown={(event) => { if (event.key === 'Enter') add(); }}
+                />
+                <Button variant="outline" onClick={add} disabled={!draft.trim()}>Add</Button>
+              </div>
+            </div>
+          );
+        })}
+      </Section>
+    </>
+  );
+}
+
+/**
+ * One job site, and the button that says whether it actually works.
+ *
+ * Each of these is a definition pointing at somebody else's API. The failure
+ * worth catching is not an error but a field mapping that reads nothing, which
+ * is indistinguishable from a quiet day until you look at what came back.
+ */
+function PresetRow({ preset, source, onChange }: {
+  preset: SourcePreset;
+  source: SourceConfig | null;
+  onChange: (next: SourceConfig) => void;
+}) {
+  const current = source ?? preset.build();
+  const [result, setResult] = useState<SourceTestResult | null>(null);
+  const [testing, setTesting] = useState(false);
+  const missing = missingCredentials(preset, current);
+
+  const runTest = async () => {
+    setTesting(true);
+    setResult(null);
+    try {
+      const http = createHttpClient({
+        rateLimitPerMinute: current.rateLimitPerMinute,
+        log: { error() {}, warn() {}, info() {}, debug() {} },
+        signal: new AbortController().signal,
+      });
+      setResult(await testSource(current, {
+        http,
+        search: { queries: ['engineer'], location: '', remote: true },
+      }));
+    } catch (cause) {
+      setResult({
+        ok: false, samples: [], read: 0, missingFields: [],
+        problems: [cause instanceof Error ? cause.message : String(cause)],
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const sample = result?.samples[0];
+
+  return (
+    <div className="stack stack--tight" style={{ paddingBottom: 'var(--cp-space-2)' }}>
+      <Switch
+        label={preset.name}
+        checked={current.enabled}
+        onChange={(next) => onChange(defineSource({ ...current, enabled: next }))}
+      />
+      <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>{preset.covers}</p>
+
+      {current.enabled && missing.length > 0 ? (
+        <p className="danger" style={{ margin: 0, fontSize: 13 }}>
+          This will not run until the {missing.length === 1 ? 'field' : 'fields'} below are filled in.
+        </p>
+      ) : null}
+
+      {(preset.credentials ?? []).map((credential) => (
+        <div key={credential.option} className="stack stack--tight">
+          <input
+            className="field"
+            defaultValue={String(current.options[credential.option] ?? '')}
+            aria-label={`${preset.name} ${credential.label}`}
+            placeholder={credential.label}
+            onBlur={(event) => onChange(defineSource({
+              ...current,
+              options: { ...current.options, [credential.option]: event.target.value.trim() },
+            }))}
+          />
+          <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+            {credential.help}{' '}
+            <a href={credential.signupUrl} target="_blank" rel="noreferrer" className="gold">Get one</a>
+          </p>
+        </div>
+      ))}
+
+      <div className="row-actions">
+        <Button variant="ghost" onClick={() => void runTest()} disabled={testing}>
+          {testing ? 'Testing…' : 'Test'}
+        </Button>
+        {result ? (
+          <span className={result.ok ? 'success' : 'danger'} style={{ fontSize: 13 }}>
+            {result.ok
+              ? `Read ${result.read} ${result.read === 1 ? 'posting' : 'postings'}.`
+              : 'Nothing came back.'}
+          </span>
+        ) : null}
+      </div>
+
+      {sample ? (
+        <div style={{ border: '1px solid var(--cp-line)', padding: 'var(--cp-space-2)' }}>
+          <Label className="label--tight">First posting, as Herald read it</Label>
+          <p style={{ margin: '4px 0 0', fontSize: 14 }}>{sample.title}</p>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            {sample.company || '(no company)'}{sample.location ? ` · ${sample.location}` : ''}
+          </p>
+        </div>
+      ) : null}
+
+      {result && result.missingFields.length > 0 ? (
+        <p className="danger" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
+          Every posting came back with no {result.missingFields.join(', ')} — a mapping
+          problem rather than a quiet day, and worth reporting.
+        </p>
+      ) : null}
+
+      {result?.problems.map((problem) => (
+        <p key={problem} className="muted" style={{ margin: 0, fontSize: 12, lineHeight: 1.6 }}>
+          {problem}
+        </p>
+      ))}
     </div>
   );
 }

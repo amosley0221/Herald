@@ -93,6 +93,20 @@ export default function Preferences() {
           value={preferences.remote}
           onChange={(next) => void updatePreferences({ remote: next })}
         />
+        {preferences.locations.length > 0 ? (
+          <Switch
+            label="Also consider roles elsewhere"
+            value={preferences.includeElsewhere}
+            onChange={(next) => void updatePreferences({ includeElsewhere: next })}
+            hint={preferences.includeElsewhere
+              ? 'Scored, but they have to be worth moving for, so local and remote come first.'
+              : 'Anything outside your locations is dropped before scoring.'}
+          />
+        ) : (
+          <BodyText size={12} tone={color.stone} style={{ lineHeight: 19 }}>
+            With no location set, Herald looks nationwide.
+          </BodyText>
+        )}
       </Section>
 
       <Section label={strings.preferences.minSalary}>

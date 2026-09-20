@@ -5,7 +5,9 @@ import { leverAdapter } from '../sources/lever.js';
 import { ashbyAdapter } from '../sources/ashby.js';
 import { workdayAdapter } from '../sources/workday.js';
 import { jsonAdapter } from '../sources/json.js';
-import type { Logger, RawPosting, SourceAdapter, SourceConfig } from '../sources/types.js';
+import type {
+  Logger, RawPosting, SearchTerms, SourceAdapter, SourceConfig,
+} from '../sources/types.js';
 import type { Preferences } from '../types.js';
 import { createHttpClient, resolveSourceAuth } from './http.js';
 import { Llm, LlmAuthError } from './llm.js';
@@ -100,7 +102,10 @@ async function execute(platform: EnginePlatform, log: Logger): Promise<CrawlOutc
     const since = await windowStart(platform);
     log.info('scan started', { since: since.toISOString(), sources: sources.length });
 
-    const candidates = await ingest(platform, sources, since, preferences, counts, controller.signal, log);
+    const search = searchTerms(preferences, stored.profile.titles);
+    const candidates = await ingest(
+      platform, sources, since, preferences, search, counts, controller.signal, log,
+    );
     log.info('ingest complete', { read: counts.read, kept: candidates.length });
 
     const created = await scoreAndStore(
@@ -131,6 +136,7 @@ async function ingest(
   sources: SourceConfig[],
   since: Date,
   preferences: Preferences,
+  search: SearchTerms,
   counts: CrawlCounts,
   signal: AbortSignal,
   log: Logger,
@@ -157,7 +163,7 @@ async function ingest(
     });
 
     try {
-      for await (const posting of adapter.fetch(source, { since, log: sourceLog, http, signal })) {
+      for await (const posting of adapter.fetch(source, { since, search, log: sourceLog, http, signal })) {
         counts.read++;
         const key = dedupeKey(posting);
 
@@ -262,6 +268,23 @@ async function windowStart(platform: EnginePlatform): Promise<Date> {
 }
 
 /** True when a source has somewhere to look; an empty board list fetches nothing. */
+/**
+ * What to ask a searching source for.
+ *
+ * The roles the user chose come first, because they said them. Falling back to
+ * the titles read from the resume means an aggregator still has something to go
+ * on for someone who never filled the roles list in -- the alternative is a
+ * source that silently returns nothing, which looks identical to a broken one.
+ */
+function searchTerms(preferences: Preferences, titles: string[]): SearchTerms {
+  const queries = preferences.roles.length > 0 ? preferences.roles : titles.slice(0, 3);
+  return {
+    queries,
+    location: preferences.locations[0] ?? '',
+    remote: preferences.remote,
+  };
+}
+
 function hasTargets(source: SourceConfig): boolean {
   const lists = ['boards', 'sites', 'tenants', 'urls'];
   const hasList = lists.some((key) => {

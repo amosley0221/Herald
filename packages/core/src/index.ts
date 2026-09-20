@@ -27,5 +27,9 @@ export { leverAdapter } from './sources/lever.js';
 export { ashbyAdapter } from './sources/ashby.js';
 export { workdayAdapter, resolvePostedOn } from './sources/workday.js';
 export { jsonAdapter } from './sources/json.js';
+export {
+  SOURCE_PRESETS, findPreset, missingCredentials, type SourcePreset,
+} from './sources/presets.js';
+export { testSource, type SourceTestResult, type SourceTestOptions } from './sources/test.js';
 export * from './pipeline/dedupe.js';
 export * from './pipeline/prefilter.js';

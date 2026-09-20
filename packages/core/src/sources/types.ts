@@ -104,9 +104,30 @@ export interface RawPosting {
   raw: unknown;
 }
 
+/**
+ * What the user is looking for, for sources that search rather than list.
+ *
+ * A company board has one answer — everything it has posted — so it ignores
+ * this. An aggregator has millions of postings and no opinion about which
+ * matter, so it has to be asked a question, and the question is the user's.
+ */
+export interface SearchTerms {
+  /**
+   * One query per request. Aggregators take a single phrase, not a boolean
+   * expression, so several roles mean several requests rather than one clever
+   * one that half of them would parse differently.
+   */
+  queries: string[];
+  /** Where to centre the search. Empty means the source decides, i.e. anywhere. */
+  location: string;
+  remote: boolean;
+}
+
 export interface FetchContext {
   /** Only return postings published at or after this instant. */
   since: Date;
+  /** Absent for a crawl with nothing to search for; `{query}` sources sit it out. */
+  search?: SearchTerms;
   log: Logger;
   http: HttpClient;
   signal: AbortSignal;

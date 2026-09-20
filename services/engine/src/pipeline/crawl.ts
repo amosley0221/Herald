@@ -122,6 +122,16 @@ export class Crawler {
     const signal = this.abortController!.signal;
     const kept = new Map<string, RawPosting & { source: string; sourcePriority: number; dedupeKey: string }>();
 
+    // Sources that search rather than list need to be told what to search for.
+    // The engine has no profile titles to fall back on at this point, so a user
+    // with no roles configured simply has no searching sources; the adapter
+    // says so in the log rather than asking an aggregator for everything.
+    const search = {
+      queries: preferences.roles,
+      location: preferences.locations[0] ?? '',
+      remote: preferences.remote,
+    };
+
     // Sources are read in parallel: one slow Workday tenant should not hold up
     // a Greenhouse board that answers in 200ms.
     await Promise.all(this.enabledSources().map(async (source) => {
@@ -135,7 +145,9 @@ export class Crawler {
 
       try {
         const adapter = getAdapter(source.adapter);
-        for await (const posting of adapter.fetch(source, { since, log: sourceLog, http, signal })) {
+        for await (const posting of adapter.fetch(source, {
+          since, search, log: sourceLog, http, signal,
+        })) {
           if (signal.aborted) return;
           counts.read++;
 
