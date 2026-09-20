@@ -1,0 +1,9 @@
+{
+  "version": "0.2.2",
+  "date": "2026-09-20",
+  "notesMarkdown": "### Fixed\n- Every request to the model was rejected with `400 \\`temperature\\` is\n  deprecated for this model`. Current models refuse sampling parameters\n  outright, and the model is configurable, so `temperature` is no longer sent\n  at all — it would have worked only on older ones. This affected the hosted\n  engine exactly as much as the apps.\n- Drafting a cover letter threw before it reached the model: the prompt asks\n  for the profile, the top reason the posting matched and a word limit, and\n  none of the three were being supplied. Approving a match would have failed\n  for everyone running without an engine.",
+  "androidVersionCode": 2002,
+  "minSupported": "0.0.0",
+  "androidApkUrl": null,
+  "patches": []
+}

@@ -1,6 +1,6 @@
 {
-  "version": "0.2.1",
-  "notes": "### Fixed\n- Uploading a `.docx` resume failed with `400 invalid_request_error: The\n  request body is not valid JSON: invalid high surrogate in string`. A `.docx`\n  is a ZIP archive, and Herald was decoding anything that was not a PDF as\n  UTF-8 text — which turns those bytes into lone surrogates that cannot be put\n  in a JSON body at all, so the request was rejected before the model ever saw\n  the resume. Herald now reads the text out of the archive, including headers\n  and footers, where a resume often keeps its contact details. A file that\n  still cannot be read as text says so instead of failing as a puzzle, and an\n  old-format `.doc` is named as such rather than being attempted.",
-  "pub_date": "2026-09-20T00:27:55Z",
+  "version": "0.2.2",
+  "notes": "### Fixed\n- Every request to the model was rejected with `400 \\`temperature\\` is\n  deprecated for this model`. Current models refuse sampling parameters\n  outright, and the model is configurable, so `temperature` is no longer sent\n  at all — it would have worked only on older ones. This affected the hosted\n  engine exactly as much as the apps.\n- Drafting a cover letter threw before it reached the model: the prompt asks\n  for the profile, the top reason the posting matched and a word limit, and\n  none of the three were being supplied. Approving a match would have failed\n  for everyone running without an engine.",
+  "pub_date": "2026-09-20T00:51:05.766Z",
   "platforms": {}
 }

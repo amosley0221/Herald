@@ -11,6 +11,8 @@ is rejected by CI.
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-09-20
+
 ### Fixed
 - Every request to the model was rejected with `400 \`temperature\` is
   deprecated for this model`. Current models refuse sampling parameters
