@@ -11,6 +11,8 @@ is rejected by CI.
 
 ## [Unreleased]
 
+## [0.2.4] — 2026-09-20
+
 ### Added
 - **Job sites, not just company boards.** Herald could only watch employers you
   named one at a time, which is no help when the question is "who is hiring at
