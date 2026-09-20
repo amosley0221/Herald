@@ -60,7 +60,7 @@ export function App() {
 }
 
 function Sidebar() {
-  const { view, setView, stats, refreshing, runCrawl } = useHerald();
+  const { view, setView, stats, refreshing, scanning, runCrawl } = useHerald();
   const [version, setVersion] = useState('');
 
   useEffect(() => {
@@ -96,8 +96,8 @@ function Sidebar() {
             : 'No crawl has run yet.'}
         </p>
         <div style={{ marginTop: 'var(--cp-space-2)', display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
-          <Button variant="ghost" onClick={() => void runCrawl()} disabled={refreshing}>
-            Crawl now
+          <Button variant="ghost" onClick={() => void runCrawl()} disabled={refreshing || scanning}>
+            {scanning ? 'Scanning…' : 'Scan now'}
           </Button>
           {version ? <Label className="label--tight">{version}</Label> : null}
         </div>

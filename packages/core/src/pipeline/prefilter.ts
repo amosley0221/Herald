@@ -44,7 +44,9 @@ export function prefilter(
     return drop('seniority does not match');
   }
 
-  if (!matchesLocation(posting, preferences)) {
+  // Somewhere else is only a reason to drop a posting when the user said it
+  // was. Otherwise it goes to scoring, which knows where they would rather be.
+  if (!preferences.includeElsewhere && !matchesLocation(posting, preferences)) {
     return drop('location is neither remote nor in a preferred location');
   }
 

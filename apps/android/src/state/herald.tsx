@@ -8,7 +8,7 @@ import {
   type HeraldBackend, type Match, type MatchStatus, type PreparedApplication,
   type Preferences, type Profile, type ReleaseIndex, type ResumeUpload, type TodayStats,
 } from '@herald/core';
-import { createBackend, readUpload } from '../engine/platform';
+import { createBackend, readUpload, runCrawl } from '../engine/platform';
 import { getApiKey, setApiKey } from '../engine/settings';
 import { startDailyScan, stopDailyScan } from '../engine/schedule';
 import { appConfig } from '../lib/config';
@@ -74,6 +74,10 @@ interface HeraldState {
   submit: (matchId: string, fields?: Record<string, string>, coverLetter?: string) => Promise<void>;
   skip: (matchId: string) => Promise<void>;
 
+  /** Runs a scan now rather than waiting for the daily one. */
+  scanNow: () => Promise<void>;
+  scanning: boolean;
+
   showToast: (message: string, tone?: 'default' | 'danger') => void;
   matchById: (id: string) => Match | undefined;
 }
@@ -93,6 +97,7 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
   const [releases, setReleases] = useState<ReleaseIndex | null>(null);
 
   const [refreshing, setRefreshing] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -344,6 +349,46 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
     }
   }, [backend, matches, setStatusLocally, showToast]);
 
+  /**
+   * A scan on demand.
+   *
+   * Reports what it found, or why it found nothing — a scan that silently does
+   * nothing because no sources are configured is indistinguishable from one
+   * that ran and matched nothing.
+   */
+  const scanNow = useCallback(async () => {
+    if (mode !== 'local') {
+      // An engine queues its own; all this side can do is ask and re-read.
+      await backend?.runCrawl();
+      showToast('Asked the engine to scan.');
+      return;
+    }
+
+    setScanning(true);
+    try {
+      const outcome = await runCrawl();
+      if (outcome.skipped) {
+        showToast(outcome.skipped, 'danger');
+        return;
+      }
+      const { read, matched, failed } = outcome.counts;
+      showToast(
+        matched > 0
+          ? `Read ${read} postings, kept ${matched}.`
+          : read > 0
+            ? `Read ${read} postings; none cleared your score floor.`
+            : failed > 0
+              ? 'Every source failed. Check the boards you added in Preferences.'
+              : 'No postings have been published since the last scan.',
+      );
+      await refresh();
+    } catch (cause) {
+      showToast(cause instanceof Error ? cause.message : strings.errors.generic, 'danger');
+    } finally {
+      setScanning(false);
+    }
+  }, [backend, mode, refresh, showToast]);
+
   const matchById = useCallback(
     (id: string) => matches.find((match) => match.id === id),
     [matches],
@@ -356,12 +401,13 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
     connect, useThisDevice, disconnect, completeOnboarding,
     refresh, uploadResume, updateProfile, updatePreferences,
     approve, submit, skip,
+    scanNow, scanning,
     showToast, matchById,
   }), [
     phase, mode, backend, credentials, profile, preferences, matches, stats, releases,
     refreshing, error, toast, connect, useThisDevice, disconnect, completeOnboarding, refresh,
     uploadResume, updateProfile, updatePreferences, approve, submit, skip,
-    showToast, matchById,
+    scanNow, scanning, showToast, matchById,
   ]);
 
   return <HeraldContext.Provider value={value}>{children}</HeraldContext.Provider>;

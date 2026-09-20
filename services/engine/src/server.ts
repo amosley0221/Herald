@@ -337,5 +337,6 @@ export function defaultPreferences(config: LoadedConfig): Preferences {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
     seniority: [],
     excludeKeywords: [],
+    includeElsewhere: false,
   };
 }

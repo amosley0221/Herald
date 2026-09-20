@@ -25,6 +25,7 @@ are deciding whether this posting is worth the candidate's attention today.
 Roles of interest: {{roles}}
 Locations: {{locations}}
 Open to remote: {{remote}}
+On roles outside those locations: {{locationPolicy}}
 Minimum acceptable salary: {{minSalary}}
 Seniority to favour: {{seniority}}
 

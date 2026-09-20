@@ -35,9 +35,18 @@ const preferences: Preferences = {
   roles: ['Product Designer'], locations: ['Charlotte'], remote: true, minSalary: 120_000,
   threshold: 85, instant: true, digest: true, digestHour: 7, tailorLetter: true,
   dailySubmitCap: 15, timezone: 'UTC', seniority: [], excludeKeywords: ['unpaid'],
+  includeElsewhere: false,
 };
 
 const recently = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+/** A role the user would have to move for: right title, wrong city, not remote. */
+const distant: RawPosting = {
+  externalId: 'd1', title: 'Senior Product Designer', company: 'Acme',
+  location: 'Seattle, WA', remote: false, pay: null, payMin: null, payMax: null,
+  payCurrency: null, url: 'https://acme.example/d1', applyUrl: 'https://acme.example/d1',
+  postedAt: recently, description: 'Design things.', raw: null,
+};
 
 async function drain(iterable: AsyncIterable<RawPosting>): Promise<RawPosting[]> {
   const out: RawPosting[] = [];
@@ -157,4 +166,32 @@ test('a Lever site is read by the same pipeline', async () => {
   assert.equal(postings.length, 1);
   assert.equal(postings[0]?.title, 'Senior Product Designer');
   assert.ok(prefilter(postings[0]!, preferences).keep, 'it should survive the prefilter');
+});
+
+test('with a location set, roles elsewhere are dropped before scoring', () => {
+  const local = { ...distant, location: 'Charlotte, NC', remote: false };
+  assert.equal(prefilter(local, preferences).keep, true, 'a local role is kept');
+  assert.equal(
+    prefilter(distant, preferences).keep, false,
+    'a role elsewhere never reaches scoring, so it cannot appear at any threshold',
+  );
+});
+
+test('includeElsewhere lets roles elsewhere through to be judged', () => {
+  const open = { ...preferences, includeElsewhere: true };
+  assert.equal(
+    prefilter(distant, open).keep, true,
+    'it is scored rather than dropped; scoring is told the candidate would have to move',
+  );
+  // The other filters still apply — this only changes what location means.
+  assert.equal(
+    prefilter({ ...distant, title: 'Warehouse Associate' }, open).keep, false,
+    'an unrelated role is still dropped wherever it is',
+  );
+});
+
+test('remote roles are kept regardless of either setting', () => {
+  const remote = { ...distant, location: 'Remote (US)', remote: true };
+  assert.equal(prefilter(remote, preferences).keep, true);
+  assert.equal(prefilter(remote, { ...preferences, includeElsewhere: true }).keep, true);
 });

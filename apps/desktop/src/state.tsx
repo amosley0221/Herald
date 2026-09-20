@@ -8,7 +8,9 @@ import {
   type Match, type MatchStatus, type PreparedApplication, type Preferences,
   type Profile, type ReleaseIndex, type ResumeUpload, type TodayStats,
 } from '@herald/core';
-import { createBackend, settings as engineSettings, setApiKey } from './engine/platform';
+import {
+  createBackend, runCrawl as runLocalCrawl, settings as engineSettings, setApiKey,
+} from './engine/platform';
 import {
   pairingStatus, serveRequests, startPairing, stopPairing, type PairingInfo,
 } from './engine/pairing';
@@ -70,6 +72,8 @@ interface HeraldState {
   disconnect: () => void;
   refresh: () => Promise<void>;
   runCrawl: () => Promise<void>;
+  /** True while a local scan is in flight, so the button can say so. */
+  scanning: boolean;
 
   uploadResume: (file: ResumeUpload) => Promise<string[]>;
   updateProfile: (patch: Partial<Profile>) => Promise<void>;
@@ -103,6 +107,7 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
   const [releases, setReleases] = useState<ReleaseIndex | null>(null);
 
   const [refreshing, setRefreshing] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -259,14 +264,37 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const runCrawl = useCallback(async () => {
-    if (!backend) return;
+    if (mode !== 'local') {
+      // A hosted engine queues its own; all this side can do is ask.
+      await backend?.runCrawl();
+      showToast('Asked the engine to scan.');
+      return;
+    }
+
+    setScanning(true);
     try {
-      await backend.runCrawl();
-      showToast('Crawl started');
+      const outcome = await runLocalCrawl();
+      if (outcome.skipped) {
+        showToast(outcome.skipped, 'danger');
+        return;
+      }
+      const { read, matched, failed } = outcome.counts;
+      showToast(
+        matched > 0
+          ? `Read ${read} postings, kept ${matched}.`
+          : read > 0
+            ? `Read ${read} postings; none cleared your score floor.`
+            : failed > 0
+              ? 'Every source failed. Check the boards you added in Preferences.'
+              : 'No postings have been published since the last scan.',
+      );
+      await refresh();
     } catch (cause) {
       showToast(cause instanceof Error ? cause.message : strings.errors.generic, 'danger');
+    } finally {
+      setScanning(false);
     }
-  }, [backend, showToast]);
+  }, [backend, mode, refresh, showToast]);
 
   const uploadResume = useCallback(async (file: ResumeUpload): Promise<string[]> => {
     if (!backend) throw new Error(strings.errors.offline);
@@ -366,7 +394,7 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
     phase, mode, backend, credentials,
     view, setView, selectedId, select, reviewing, setReviewing,
     profile, preferences, matches, stats, releases,
-    refreshing, error, toast,
+    refreshing, scanning, error, toast,
     connect, useThisMachine, disconnect,
     pairing, startSharing, stopSharing, refresh, runCrawl,
     uploadResume, updateProfile, updatePreferences,
@@ -374,7 +402,7 @@ export function HeraldProvider({ children }: { children: ReactNode }) {
     showToast, matchById,
   }), [
     phase, mode, backend, credentials, view, selectedId, select, reviewing,
-    profile, preferences, matches, stats, releases, refreshing, error, toast,
+    profile, preferences, matches, stats, releases, refreshing, scanning, error, toast,
     connect, useThisMachine, disconnect,
     pairing, startSharing, stopSharing, refresh, runCrawl, uploadResume, updateProfile,
     updatePreferences, approve, submit, skip, showToast, matchById,

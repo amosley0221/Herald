@@ -51,6 +51,7 @@ export class Scorer {
       roles: preferences.roles.length ? preferences.roles.join(', ') : 'not specified',
       locations: preferences.locations.length ? preferences.locations.join(', ') : 'not specified',
       remote: preferences.remote ? 'yes' : 'no',
+      locationPolicy: locationPolicy(preferences),
       minSalary: preferences.minSalary != null ? String(preferences.minSalary) : 'not specified',
       seniority: preferences.seniority.length ? preferences.seniority.join(', ') : 'not specified',
       title: posting.title,
@@ -140,4 +141,20 @@ function formatRange(posting: RawPosting): string | null {
     return `${posting.payMin}-${posting.payMax} ${currency}`;
   }
   return `${posting.payMin ?? posting.payMax} ${currency}`;
+}
+
+/**
+ * What to tell scoring about roles outside the preferred locations. Shared
+ * wording with the apps, so a score means the same thing either way.
+ */
+function locationPolicy(preferences: Preferences): string {
+  if (preferences.locations.length === 0) {
+    return 'No location preference; judge the role on its merits wherever it is.';
+  }
+  if (!preferences.includeElsewhere) {
+    return 'Not acceptable. Only the locations above, or remote.';
+  }
+  return 'Acceptable, but the candidate would have to move, so a role elsewhere '
+    + 'should score well below an equivalent one nearby or remote. Score it high '
+    + 'only if it is clearly worth relocating for.';
 }

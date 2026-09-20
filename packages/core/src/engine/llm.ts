@@ -74,6 +74,7 @@ export class Llm {
       roles: preferences.roles.join(', ') || 'not specified',
       locations: preferences.locations.join(', ') || 'not specified',
       remote: preferences.remote ? 'yes' : 'no',
+      locationPolicy: locationPolicy(preferences),
       minSalary: preferences.minSalary != null ? `$${thousands(preferences.minSalary)}` : 'not specified',
       seniority: preferences.seniority.join(', ') || 'not specified',
       title: posting.title,
@@ -224,6 +225,25 @@ function resumeText(file: { base64: string; mimeType: string }, name: string): s
   }
   if (!text.trim()) throw new Error('That file appears to be empty.');
   return text;
+}
+
+/**
+ * What to tell scoring about roles outside the preferred locations.
+ *
+ * Rather than adjusting the score afterwards — which would be putting a thumb
+ * on the model's judgement — the preference is stated and the model weighs it
+ * like any other requirement.
+ */
+function locationPolicy(preferences: Preferences): string {
+  if (preferences.locations.length === 0) {
+    return 'No location preference; judge the role on its merits wherever it is.';
+  }
+  if (!preferences.includeElsewhere) {
+    return 'Not acceptable. Only the locations above, or remote.';
+  }
+  return 'Acceptable, but the candidate would have to move, so a role elsewhere '
+    + 'should score well below an equivalent one nearby or remote. Score it high '
+    + 'only if it is clearly worth relocating for.';
 }
 
 /** The profile as the prompt wants it: plain lines, nothing empty. */

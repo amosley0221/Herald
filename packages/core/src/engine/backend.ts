@@ -275,7 +275,7 @@ function defaultPreferences(): Preferences {
   return {
     roles: [], locations: [], remote: true, minSalary: null, threshold: 85,
     instant: true, digest: true, digestHour: 7, tailorLetter: true,
-    dailySubmitCap: 15, timezone: 'UTC', seniority: [], excludeKeywords: [],
+    dailySubmitCap: 15, timezone: 'UTC', seniority: [], excludeKeywords: [], includeElsewhere: false,
   };
 }
 
