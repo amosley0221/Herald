@@ -1,6 +1,6 @@
 {
   "version": "0.2.5",
   "notes": "### Fixed\n- **Every screen failed with `NativeDatabase.prepareAsync has been rejected —\n  java.lang.NullPointerException` on Android.** Opening the database cached the\n  finished handle rather than the work in progress, so the three requests the\n  first screen makes at once — matches, stats, preferences — each found no\n  handle and each opened the file. Two connections to one SQLite file leave one\n  holding a released native pointer, and it fails later and somewhere else,\n  which is why the message named a statement rather than the open. Desktop\n  already cached the promise and was never affected.\n- The last character of a heading was clipped on Android — the Today screen\n  read `TODA`. Android measures text with any letter spacing down a path that\n  under-reports the final glyph, so the view clips its own last letter; every\n  tracked style now reserves the room.",
-  "pub_date": "2026-09-20T13:32:32.254Z",
+  "pub_date": "2026-09-20T13:32:38Z",
   "platforms": {}
 }
