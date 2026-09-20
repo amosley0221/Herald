@@ -1,0 +1,9 @@
+{
+  "version": "0.2.3",
+  "date": "2026-09-20",
+  "notesMarkdown": "### Added\n- **Scan now.** Both apps can run a scan on demand instead of waiting for the\n  daily one — useful on the first day, when the schedule is up to 24 hours\n  away and there is nothing yet to judge the setup by. It reports what it\n  found: how many postings were read, how many were kept, or that every\n  source failed.\n- **Roles elsewhere.** A location no longer means *only* that location.\n  With **Also consider roles elsewhere** on, postings outside the preferred\n  areas are scored rather than dropped, but scoring is told the candidate\n  would have to move for them, so they have to be clearly worth it to place\n  above local and remote ones. Off — the previous behaviour, and still the\n  default — they never appear. With no location set at all, Herald was\n  already searching nationwide; both apps now say so where the setting is.\n- **What Herald read from your resume.** The parsed profile — titles, skills,\n  years, summary and contact details — was visible only during onboarding.\n  It is what every posting is scored against, so a title the parser missed\n  explains a whole day of thin matches and there was no way to see that. It\n  is now reachable any time from Preferences on both apps, alongside a plain\n  statement of which of the two actually governs the search: the roles list\n  filters titles, the profile is what they are judged against.",
+  "androidVersionCode": 2003,
+  "minSupported": "0.0.0",
+  "androidApkUrl": null,
+  "patches": []
+}

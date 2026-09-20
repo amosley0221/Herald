@@ -11,6 +11,8 @@ is rejected by CI.
 
 ## [Unreleased]
 
+## [0.2.3] — 2026-09-20
+
 ### Added
 - **Scan now.** Both apps can run a scan on demand instead of waiting for the
   daily one — useful on the first day, when the schedule is up to 24 hours

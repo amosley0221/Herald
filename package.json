@@ -1,6 +1,6 @@
 {
   "name": "herald",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "Herald — automated job application engine. Android + desktop clients over a scheduled matching engine.",
   "license": "UNLICENSED",
