@@ -116,7 +116,6 @@ export class ResumeParser {
             model: this.config.llm.writeModel,
             prompt: this.prompts.render('resume-parse', { resume: text.slice(0, 20_000) }),
             maxTokens: 1500,
-            temperature: 0,
           },
           (value) => ParsedSchema.parse(value),
         );

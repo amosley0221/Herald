@@ -22,6 +22,9 @@ export interface ScoreResult {
   gaps: string[];
 }
 
+/** Long enough to say something, short enough that nobody skims past it. */
+const COVER_LETTER_MAX_WORDS = 180;
+
 /** Thrown when the key is missing or rejected, so the UI can say which. */
 export class LlmAuthError extends Error {
   constructor(message: string) {
@@ -97,17 +100,28 @@ export class Llm {
     };
   }
 
-  /** Drafts a cover letter. The user edits it on the Review screen before anything is sent. */
+  /**
+   * Drafts a cover letter. The user edits it on the Review screen before
+   * anything is sent.
+   *
+   * `topReason` is the first of the reasons scoring gave for the match, so the
+   * letter leads with the same thing the user was shown as the reason to look.
+   */
   async coverLetter(
-    posting: RawPosting, resumeText: string, profile: Profile,
+    posting: RawPosting,
+    profile: Profile,
+    topReason?: string,
   ): Promise<string> {
     const prompt = renderPrompt(DEFAULT_PROMPTS['cover-letter'], {
-      resume: resumeText,
-      name: profile.fullName ?? '',
+      profile: describeProfile(profile),
       title: posting.title,
       company: posting.company,
-      location: posting.location || 'not specified',
-      description: posting.description,
+      location: posting.location || 'not stated',
+      // The prompt only needs enough of the posting to write against; the rest
+      // is boilerplate that costs tokens on every application.
+      description: posting.description.slice(0, 6_000),
+      topReason: topReason ?? 'Your background lines up with what this role asks for.',
+      maxWords: COVER_LETTER_MAX_WORDS,
     });
     return (await this.text(this.models.writeModel, prompt, this.models.maxOutputTokens)).trim();
   }
@@ -139,7 +153,9 @@ export class Llm {
     const message = await this.client.messages.create({
       model: this.models.writeModel,
       max_tokens: 4096,
-      temperature: 0,
+      // No `temperature`: current models reject sampling parameters outright
+      // (`400 \`temperature\` is deprecated for this model`), and the model is
+      // configurable, so sending it would work only on older ones.
       messages: [{ role: 'user', content }],
     });
 
@@ -160,7 +176,8 @@ export class Llm {
   private async text(model: string, prompt: string, maxTokens: number): Promise<string> {
     try {
       const message = await this.client.messages.create({
-        model, max_tokens: maxTokens, temperature: 0,
+        // See parseResume: sampling parameters are rejected by current models.
+        model, max_tokens: maxTokens,
         messages: [{ role: 'user', content: prompt }],
       });
       return firstText(message);
@@ -207,6 +224,18 @@ function resumeText(file: { base64: string; mimeType: string }, name: string): s
   }
   if (!text.trim()) throw new Error('That file appears to be empty.');
   return text;
+}
+
+/** The profile as the prompt wants it: plain lines, nothing empty. */
+function describeProfile(profile: Profile): string {
+  return [
+    profile.fullName && `Name: ${profile.fullName}`,
+    profile.location && `Location: ${profile.location}`,
+    profile.years != null && `Years of experience: ${profile.years}`,
+    profile.titles.length > 0 && `Titles held: ${profile.titles.join(', ')}`,
+    profile.skills.length > 0 && `Skills: ${profile.skills.join(', ')}`,
+    profile.summary && `Summary: ${profile.summary}`,
+  ].filter((line): line is string => typeof line === 'string').join('\n');
 }
 
 function firstText(message: Anthropic.Message): string {

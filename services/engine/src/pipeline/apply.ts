@@ -274,7 +274,6 @@ export class ApplyService {
         model: this.config.llm.writeModel,
         prompt,
         maxTokens: 800,
-        temperature: 0.4,
       });
       return letter.trim() || null;
     } catch (cause) {
