@@ -27,6 +27,24 @@ const JOST = {
 export type DisplayWeight = keyof typeof CINZEL;
 export type BodyWeight = keyof typeof JOST;
 
+/**
+ * Room for the last glyph.
+ *
+ * Android measures a Text with any non-zero `letterSpacing` down a path that
+ * under-reports the final glyph's advance, so the last character is clipped by
+ * the view's own right edge -- "TODAY" renders as "TODA". The shortfall is the
+ * glyph's right side bearing rather than the tracking, so it is far wider than
+ * the letter spacing itself and is worst in a display serif like Cinzel.
+ *
+ * Padding reserves that room. It costs a couple of pixels of trailing space in
+ * a left-aligned line, which is invisible, and it is applied wherever tracking
+ * is set rather than at the one call site that showed the problem -- every
+ * other one has it too, just with a luckier final letter.
+ */
+function trailing(size: number): number {
+  return Math.ceil(size * 0.12);
+}
+
 /** Cinzel: headings, the wordmark, scores, numerals and dates. */
 export function display(size: number, weight: DisplayWeight = 500, extra?: TextStyle): TextStyle {
   return {
@@ -34,6 +52,7 @@ export function display(size: number, weight: DisplayWeight = 500, extra?: TextS
     fontSize: size,
     letterSpacing: size * tracking.display,
     lineHeight: Math.round(size * leading.display),
+    paddingRight: trailing(size),
     color: color.bone,
     ...extra,
   };
@@ -56,6 +75,7 @@ export function label(size: number = text.label, extra?: TextStyle): TextStyle {
     fontFamily: JOST[500],
     fontSize: size,
     letterSpacing: size * tracking.label,
+    paddingRight: trailing(size),
     textTransform: 'uppercase',
     color: color.stone,
     ...extra,
@@ -68,6 +88,7 @@ export function labelTight(size: number, extra?: TextStyle): TextStyle {
     fontFamily: JOST[500],
     fontSize: size,
     letterSpacing: size * tracking.labelTight,
+    paddingRight: trailing(size),
     textTransform: 'uppercase',
     color: color.stone,
     ...extra,
