@@ -25,7 +25,7 @@ const PREFERENCES: Preferences = {
   dailySubmitCap: 15,
   timezone: 'America/New_York',
   seniority: [],
-  excludeKeywords: ['contract'],
+  excludeKeywords: ['contract'], includeElsewhere: false,
 };
 
 function posting(overrides: Partial<RawPosting> = {}): RawPosting {
@@ -122,7 +122,7 @@ test('a missing salary range is not treated as a low one', () => {
 });
 
 test('empty preferences filter nothing out', () => {
-  const open: Preferences = { ...PREFERENCES, roles: [], locations: [], excludeKeywords: [], minSalary: null };
+  const open: Preferences = { ...PREFERENCES, roles: [], locations: [], excludeKeywords: [], includeElsewhere: false, minSalary: null };
   assert.equal(prefilter(posting({ title: 'Warehouse Associate' }), open, { maxPostingAgeDays: 30 }).keep, true);
 });
 

@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { heraldDate, strings, thousands } from '@herald/core';
 import {
+  Button,
   BodyText, EmptyState, Label, Numeral, SectionLabel, StatGrid,
 } from '../../src/components/primitives';
 import { MatchRow } from '../../src/components/MatchRow';
@@ -23,7 +24,9 @@ import { useFeed, useHerald } from '../../src/state/herald';
  * screen after launch and the only one the user is guaranteed to see.
  */
 export default function Today() {
-  const { stats, preferences, releases, refreshing, refresh, error, showToast } = useHerald();
+  const {
+    stats, preferences, releases, refreshing, refresh, error, showToast, scanNow, scanning,
+  } = useHerald();
   const { instant, pending } = useFeed();
   const insets = useSafeAreaInsets();
   const [nativeUpdate, setNativeUpdate] = useState<NativeUpdate | null>(null);
@@ -83,6 +86,12 @@ export default function Today() {
             { label: strings.today.stats.pending, value: String(stats?.pending ?? 0) },
           ]}
         />
+      </View>
+
+      <View style={{ paddingHorizontal: space[3], paddingTop: space[2] }}>
+        <Button variant="outline" fullWidth loading={scanning} onPress={() => void scanNow()}>
+          {scanning ? 'Scanning…' : 'Scan now'}
+        </Button>
       </View>
 
       <View style={{ paddingHorizontal: space[3], paddingVertical: space[3] }}>

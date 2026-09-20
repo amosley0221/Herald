@@ -104,6 +104,16 @@ export interface Preferences {
   seniority: string[];
   /** Postings whose title or company match any of these are dropped pre-scoring. */
   excludeKeywords: string[];
+  /**
+   * Whether roles outside `locations` are worth seeing.
+   *
+   * Off, a posting somewhere else is dropped before it is ever scored, so it
+   * cannot appear at any threshold. On, it is scored — but scoring is told the
+   * preferred locations and that elsewhere has to be clearly worth moving for,
+   * so local roles win a tie on their own merits rather than by a thumb on the
+   * scale.
+   */
+  includeElsewhere: boolean;
 }
 
 export interface TodayStats {

@@ -191,6 +191,15 @@ export default function Preferences() {
       {mode === 'local' ? (
         <>
           <Pressable
+            onPress={() => router.push('/profile')}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.linkRow, pressed && { backgroundColor: color.graphite }]}
+          >
+            <BodyText size={15} style={{ flex: 1 }}>What Herald read from your resume</BodyText>
+            <Label>View</Label>
+          </Pressable>
+          <Hairline />
+          <Pressable
             onPress={() => router.push('/sources')}
             accessibilityRole="button"
             style={({ pressed }) => [styles.linkRow, pressed && { backgroundColor: color.graphite }]}

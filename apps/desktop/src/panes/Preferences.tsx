@@ -88,6 +88,22 @@ export function PreferencesPane() {
           checked={preferences.remote}
           onChange={(next) => void updatePreferences({ remote: next })}
         />
+        {preferences.locations.length > 0 ? (
+          <>
+            <Switch
+              label="Also consider roles elsewhere"
+              checked={preferences.includeElsewhere}
+              onChange={(next) => void updatePreferences({ includeElsewhere: next })}
+            />
+            <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
+              {preferences.includeElsewhere
+                ? 'Roles outside your area are scored, but have to be clearly worth moving for, so local and remote ones come first.'
+                : 'Only your locations and remote roles. Anything elsewhere is dropped before it is scored, so it will never appear.'}
+            </p>
+          </>
+        ) : (
+          <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>With no location set, Herald looks nationwide.</p>
+        )}
       </Section>
 
       <Section label={strings.preferences.minSalary}>
@@ -176,6 +192,44 @@ export function PreferencesPane() {
           {profile?.resumeFileName ? 'Replace resume' : strings.onboarding.upload.cta}
         </Button>
       </Section>
+
+      {profile ? (
+        <Section label="What Herald read from your resume">
+          <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
+            Every posting is scored against this, so anything missing here is
+            missing from the judgement too. Re-upload a clearer copy to change it.
+          </p>
+          {profile.titles.length > 0 ? (
+            <div className="stack stack--tight">
+              <Label className="label--tight">
+                Titles held{profile.years != null ? ` · ${profile.years} years` : ''}
+              </Label>
+              <div className="row-actions" style={{ flexWrap: 'wrap' }}>
+                {profile.titles.map((title) => <Tag key={title}>{title}</Tag>)}
+              </div>
+            </div>
+          ) : null}
+          {profile.skills.length > 0 ? (
+            <div className="stack stack--tight">
+              <Label className="label--tight">Skills</Label>
+              <div className="row-actions" style={{ flexWrap: 'wrap' }}>
+                {profile.skills.map((skill) => <Tag key={skill}>{skill}</Tag>)}
+              </div>
+            </div>
+          ) : null}
+          {profile.summary ? (
+            <div className="stack stack--tight">
+              <Label className="label--tight">Summary</Label>
+              <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6 }}>{profile.summary}</p>
+            </div>
+          ) : null}
+          <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
+            {preferences.roles.length > 0
+              ? `Only postings whose title matches ${preferences.roles.join(', ')} are scored — that list is yours, above. The profile here is what they are then judged against.`
+              : 'No role filter is set, so every posting is scored against the profile above.'}
+          </p>
+        </Section>
+      ) : null}
 
       {profile ? (
         <Section label="Application details">
